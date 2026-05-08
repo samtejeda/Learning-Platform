@@ -1,0 +1,133 @@
+# Learning Platform — Project Context
+
+## What this is
+A mobile-first web learning platform similar to Blackboard. Students watch video lectures, complete exams and assignments, and participate in forums. Professors create content and grade work. Admins manage the platform.
+
+## Tech Stack
+
+| Layer | Choice | Notes |
+|---|---|---|
+| Framework | Next.js 15 (App Router) + TypeScript | Fullstack — frontend + API routes in one repo |
+| Database | Supabase (Postgres) | Also handles Auth and Storage |
+| ORM | Drizzle ORM | Type-safe, pairs well with Supabase Postgres |
+| Auth | Supabase Auth | Email+password and phone OTP (Twilio integration) |
+| Storage | Supabase Storage | Video files, assignment uploads, readings |
+| SMS/OTP | Twilio Verify (via Supabase Auth) | Phone-based OTP sign-in |
+| Deployment | Vercel | |
+
+## User Roles
+
+- **Student** — watches lectures, submits assignments, takes exams, posts in forums
+- **Professor** — creates all course content, grades assignments and exams, views student progress
+- **Admin** — platform-level management (scope TBD)
+
+All role checks happen **server-side only**. Never trust the client for permission decisions.
+
+## Feature Overview
+
+### Courses
+- A course has sections that appear only when content exists: Lectures, Syllabus, Exams, Assignments, Readings
+- Students can be enrolled in multiple courses
+- Main dashboard shows enrolled courses; clicking opens all course content
+
+### Lectures (Videos)
+- Videos stored in Supabase Storage, served via signed URLs
+- Custom HTML5 video player — no native controls exposed
+- Anti-scrubbing enforcement: server tracks per-student watch progress; a lecture is only marked "complete" when >= 95% has been genuinely watched (server validates, not frontend)
+- Optional end-of-lecture comprehension question (per-course setting by professor)
+
+### Exams
+- Question types: Multiple choice, True/False, Fill in the blank, Short essay (written text)
+- Exams are NOT auto-graded — professor grades manually
+- Section only appears in UI when an exam has been published
+
+### Assignments
+- Not in every course — section only appears when assignments exist
+- Professors grade assignments manually
+
+### Forum
+- Questions can be posted from within a specific lecture
+- Posts are visible at the course level (and potentially platform-wide — TBD)
+- Professors and students both can reply
+
+### Auth Flows
+- Sign in: email + password **or** phone number + OTP code
+- Password reset via email link
+- Phone OTP means students who forget their password can still access via phone
+
+## Project Structure (planned)
+
+```
+/
+├── app/                        # Next.js App Router
+│   ├── (auth)/                 # Login, register, reset-password pages
+│   ├── (student)/              # Student-facing routes
+│   │   ├── dashboard/
+│   │   └── courses/[courseId]/
+│   ├── (professor)/            # Professor-facing routes
+│   │   ├── dashboard/
+│   │   └── courses/[courseId]/
+│   ├── (admin)/                # Admin routes (scope TBD)
+│   └── api/                    # API route handlers
+│       ├── auth/
+│       ├── courses/
+│       ├── lectures/
+│       ├── exams/
+│       ├── assignments/
+│       └── forum/
+├── components/                 # Shared React components
+│   ├── ui/                     # Generic UI primitives
+│   ├── video-player/           # Custom anti-scrub video player
+│   ├── exam-builder/           # Professor exam creation
+│   └── forum/
+├── lib/
+│   ├── db/                     # Drizzle schema + client
+│   ├── supabase/               # Supabase client helpers (server / client)
+│   └── auth/                   # Auth utilities, session helpers
+├── middleware.ts               # Route protection by role
+└── drizzle.config.ts
+```
+
+## API Security Rules (non-negotiable)
+
+These come from explicit project requirements — do not compromise on them:
+
+1. **Never trust the frontend** — every API route must verify the user's identity and role server-side, regardless of what the UI shows or hides
+2. **Broken access control** — always check that the authenticated user owns or has permission to access the resource being requested
+3. **Business logic** — validate the full flow, not just individual endpoints (e.g., can't submit exam answers if exam isn't open/published)
+4. **No blind trust of external APIs** — validate tokens and responses from Supabase Auth and Twilio; don't assume they can't be spoofed
+5. **Rate limiting** — all auth endpoints (login, OTP send, OTP verify) must be rate-limited
+6. **Input validation** — all user input must be validated and sanitized server-side before hitting the database
+7. **Minimal response data** — API routes return only what the client needs; never expose passwords, tokens, internal IDs beyond what's required
+8. **SSRF prevention** — never make server-side HTTP requests based on unvalidated user input
+9. **API inventory** — every route must be documented; no orphaned/test routes left in production
+10. **Security misconfiguration** — no debug mode in prod, no default credentials, keep dependencies updated
+
+## Database Design Notes
+
+Key tables to plan:
+- `users` (id, email, phone, role, created_at)
+- `courses` (id, title, description, professor_id)
+- `enrollments` (student_id, course_id)
+- `lectures` (id, course_id, title, video_url, order, completion_threshold)
+- `lecture_progress` (student_id, lecture_id, watched_seconds, completed, last_updated)
+- `exams` (id, course_id, title, published_at)
+- `exam_questions` (id, exam_id, type, prompt, options_json, order)
+- `exam_submissions` (id, exam_id, student_id, submitted_at)
+- `exam_answers` (id, submission_id, question_id, answer_text)
+- `assignments` (id, course_id, title, description, due_date)
+- `assignment_submissions` (id, assignment_id, student_id, file_url, grade, feedback)
+- `forum_posts` (id, lecture_id, course_id, author_id, body, created_at)
+- `forum_replies` (id, post_id, author_id, body, created_at)
+
+## Mobile-First
+Primary target is phone users. Design and test mobile layouts first. Desktop is secondary but equally important.
+
+## Development Commands
+(to be filled in once project is scaffolded)
+```
+pnpm dev        # start dev server
+pnpm build      # production build
+pnpm db:push    # push Drizzle schema to Supabase
+pnpm db:studio  # open Drizzle Studio
+```
