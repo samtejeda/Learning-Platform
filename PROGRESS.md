@@ -2,19 +2,32 @@
 
 Source of truth for where this project actually stands. Read this before resuming work in a new session — trust this over assumptions in `CLAUDE.md`'s narrative sections, since code moves faster than docs.
 
-Last reconciled: 2026-09-16.
+Last reconciled: 2026-09-17 (full file-by-file inventory; foundation phase plan approved by Sam and in progress).
+
+## Foundation phase (2026-09-17) — commit log
+- [x] 1. `proxy.ts` exported `middleware` and `runtime`; Next 16 requires a `proxy` export and forbids segment config in that file, so the auth gate never ran and `pnpm build` failed. Fixed. `drizzle/meta/` un-ignored so migrations can be versioned. `DIRECT_URL` added to `.env.local.example`.
+- [ ] 2. Versioned migrations (`drizzle-kit generate` + `migrate`), remove `db:push`.
+- [ ] 3. Deny-all RLS on every table + revoke PostgREST grants from `anon`/`authenticated`.
+- [ ] 4. `auth.users` triggers: create `public.users` row, sync contact, sync `role` into JWT `app_metadata`.
+- [ ] 5. Vitest; `lib/auth/roles.ts`, `lib/auth/session.ts`, `lib/api/respond.ts`.
+- [ ] 6. Role-prefixed URLs (student at root, `/professor/*`, `/admin/*`), proxy role gate, per-group layouts, first pages.
+- [ ] 7. Zod validation + `useActionState` auth forms.
+- [ ] 8. PKCE `/api/auth/callback`, `/update-password`, `NEXT_PUBLIC_SITE_URL` helper, phone OTP `shouldCreateUser: false`.
+- [ ] 9. Postgres-backed rate limiting on all auth actions.
+- [ ] 10. Security headers.
+- [ ] 11. `API.md` inventory, docs refresh.
+
+**Blocked on Sam:** the Supabase project host (`eexfdauqvymkeatjujoo.supabase.co`) does not resolve in DNS as of 2026-09-17 — paused or deleted. Migrations can be generated offline, but applying them (steps 2–4, 9) and live verification wait on restoring/recreating the project. Also `.env.local` needs: the `@` in the `DATABASE_URL` password percent-encoded as `%40`, plus `DIRECT_URL` and `NEXT_PUBLIC_SITE_URL` added.
 
 ## Done
 - Drizzle schema (`lib/db/schema.ts`) covering users, courses, enrollments, lectures, lecture_progress, exams, exam_questions, exam_submissions, exam_answers, assignments, assignment_submissions, forum_posts, forum_replies, with relations wired up.
 - Supabase client helpers (`lib/supabase/client.ts`, `lib/supabase/server.ts`).
 - Auth server actions (`lib/auth/actions.ts`): email+password sign-in, phone OTP send/verify, sign-up (creates matching row in `users` with role `student`), password reset request, sign-out.
-- Auth pages scaffolded: `app/(auth)/login`, `register`, `reset-password` (+ layout).
-- Route groups scaffolded for all three roles: `app/(student)`, `app/(professor)`, `app/(admin)` (dashboard/courses subroutes present, not yet confirmed built out — inventory this before assuming content exists).
-- Basic authentication gate in `proxy.ts` (Next.js 16's renamed `middleware.ts`): redirects unauthenticated users to `/login` for any non-public route.
+- Auth pages: `app/(auth)/login`, `register`, `reset-password` (+ layout). Real forms wired to the server actions.
+- Authentication gate in `proxy.ts` (Next.js 16's renamed `middleware.ts`): redirects unauthenticated users to `/login?next=…` for any non-public route. Fixed 2026-09-17 (see commit log above); before that the file never ran.
 
 ## In progress
-- Role-based route protection: `proxy.ts` currently treats "logged in" and "authorized" as the same thing. It does not check `role` against the `(student)/(professor)/(admin)` route group being accessed. This needs to happen before any of those routes hold real content.
-- API route handlers under `app/api/{auth,courses,lectures,exams,assignments,forum}/` exist as directories but weren't inventoried file-by-file this session — confirm what's actually implemented vs. empty before assuming coverage.
+- Foundation phase per the commit log above. Inventory on 2026-09-17 confirmed: `app/(student)`, `app/(professor)`, `app/(admin)`, `app/api/*`, and `components/*` were all **empty directories** (no files), and `app/page.tsx` was the stock create-next-app template. Nothing beyond the auth pages was built.
 
 ## Next up
 (Priority order per `ORCHESTRATION.md`)

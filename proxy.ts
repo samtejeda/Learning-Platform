@@ -1,9 +1,10 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-export const runtime = "nodejs";
-
-export async function middleware(request: NextRequest) {
+// Next.js 16 renamed middleware.ts → proxy.ts and requires the exported
+// function to be named `proxy` (or a default export). Route segment config
+// such as `runtime` is not allowed here; proxy always runs on Node.js.
+export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -43,6 +44,9 @@ export async function middleware(request: NextRequest) {
   if (!user && !isPublicRoute) {
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
+    loginUrl.search = "";
+    // Remember where the user was headed so login can return them there.
+    if (pathname !== "/") loginUrl.searchParams.set("next", pathname);
     return NextResponse.redirect(loginUrl);
   }
 
