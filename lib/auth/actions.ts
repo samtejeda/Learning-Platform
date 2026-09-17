@@ -2,15 +2,18 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getSiteUrl } from "@/lib/env";
 import { parseFormData, parseObject, type ActionState } from "@/lib/validation/form";
 import {
   resetRequestSchema,
   sendOtpSchema,
   signInSchema,
   signUpSchema,
+  updatePasswordSchema,
   verifyOtpSchema,
 } from "@/lib/validation/auth";
-import { safeNextPath } from "./roles";
+import { homeForRole, safeNextPath } from "./roles";
+import { getCurrentUser } from "./session";
 
 // Conventions (see API.md):
 //  - Form actions: (prev: ActionState, formData) => Promise<ActionState>.
@@ -96,7 +99,12 @@ export async function signUp(_prev: ActionState, formData: FormData): Promise<Ac
   const { error } = await supabase.auth.signUp({
     email,
     password,
-    options: { data: { full_name: fullName } },
+    options: {
+      data: { full_name: fullName },
+      // The confirmation link lands on our PKCE callback, which exchanges
+      // the code for a session and then sends the user to their dashboard.
+      emailRedirectTo: `${getSiteUrl()}/api/auth/callback?next=${encodeURIComponent("/dashboard")}`,
+    },
   });
 
   if (error) {
@@ -133,12 +141,42 @@ export async function requestPasswordReset(
 
   const supabase = await createClient();
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/update-password`,
+    // Callback exchanges the recovery code for a session, then lands on the
+    // update-password form (which requires that session).
+    redirectTo: `${getSiteUrl()}/api/auth/callback?next=${encodeURIComponent("/update-password")}`,
   });
 
   // Always return success to avoid leaking whether an email exists
   if (error) console.error("[auth] password reset error:", error.message);
   return { success: "If that email is registered, a reset link is on its way." };
+}
+
+export async function updatePassword(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = parseFormData(updatePasswordSchema, formData);
+  if (!parsed.ok) return parsed.state;
+
+  // Requires the (recovery) session the callback route established. Checked
+  // here as well as in proxy.ts: never trust the gate in front of you.
+  const user = await getCurrentUser();
+  if (!user) return { error: "Your reset link has expired. Please request a new one." };
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.updateUser({ password: parsed.data.password });
+  if (error) {
+    if (error.code === "same_password") {
+      return { error: "Choose a password you haven't used before." };
+    }
+    if (error.code === "weak_password") {
+      return { error: "That password is too easy to guess. Try a longer one." };
+    }
+    console.error("[auth] updatePassword error:", error.code ?? error.status);
+    return { error: "We couldn't update your password. Please try again." };
+  }
+
+  redirect(homeForRole(user.role));
 }
 
 export async function signOut() {
