@@ -39,7 +39,10 @@ export const questionTypeEnum = pgEnum("question_type", [
 
 // ─── Users ────────────────────────────────────────────────────────────────────
 // Mirrors Supabase Auth's auth.users table — this is the public profile table.
-// The id must match the Supabase Auth user id exactly.
+// The id must match the Supabase Auth user id exactly. Rows are created and
+// kept in sync by triggers on auth.users (drizzle/0003_auth_user_triggers.sql);
+// application code never inserts here. `role` is mirrored into the JWT's
+// app_metadata by a trigger on this table.
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey(), // references auth.users(id)

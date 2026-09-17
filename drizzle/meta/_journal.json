@@ -22,6 +22,13 @@
       "when": 1789668959731,
       "tag": "0002_revoke_postgrest_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789668982656,
+      "tag": "0003_auth_user_triggers",
+      "breakpoints": true
     }
   ]
 }

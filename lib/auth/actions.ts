@@ -2,8 +2,6 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { db } from "@/lib/db";
-import { users } from "@/lib/db/schema";
 
 export async function signInWithEmail(_: unknown, formData: FormData) {
   const email = (formData.get("email") as string).trim().toLowerCase();
@@ -57,15 +55,17 @@ export async function signUp(_: unknown, formData: FormData) {
     return { error: "Password must be at least 8 characters." };
 
   const supabase = await createClient();
-  const { data, error } = await supabase.auth.signUp({ email, password });
+  // The public.users profile row is created by a database trigger on
+  // auth.users insert (drizzle/0003_auth_user_triggers.sql), so it can't
+  // drift from the auth record. full_name travels via user metadata.
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { data: { full_name: fullName } },
+  });
 
   if (error) return { error: error.message };
   if (!data.user) return { error: "Sign up failed. Please try again." };
-
-  await db
-    .insert(users)
-    .values({ id: data.user.id, email, fullName, role: "student" })
-    .onConflictDoNothing();
 
   return {
     success:
