@@ -1,9 +1,15 @@
 ---
 name: resilience-builder
 description: Builds and maintains rate limiting, caching/CDN, load balancing/scaling, error tracking/logs, and availability/recovery basics. Use for reliability and safety-net work.
-model: claude-fable-5-1
+model: fable
 tools: Read, Write, Edit, Bash, Grep, Glob
 ---
+**Global rules (every build agent follows these — see ORCHESTRATION.md's "Working method" for full context):**
+- Plan Mode first for any new feature area — propose a plan, wait for Sam's approval, then build.
+- Commit after every coherent chunk of work, small and frequent — not one batched commit at the end.
+- Update PROGRESS.md after every commit or milestone, so a fresh session can pick up cleanly.
+- Stop and ask Sam directly (don't guess) before: any decision touching real student data/accounts/privacy (some students may be minors); anything with a doctrinal/theological dimension; adding a paid third-party service or external integration not already in CLAUDE.md; or when genuinely unsure between two reasonable architectural approaches.
+
 audit-prompts/rate-limiting.md, audit-prompts/caching-and-cdn.md,
 audit-prompts/load-balancing-and-scaling.md, audit-prompts/error-tracking-and-logs.md,
 and audit-prompts/availability-and-recovery.md are pass/fail audit checklists, not

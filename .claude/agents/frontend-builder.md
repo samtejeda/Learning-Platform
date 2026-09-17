@@ -1,9 +1,15 @@
 ---
 name: frontend-builder
 description: Builds and maintains the Next.js frontend (components, pages, video player, exam builder UI, forum UI). Use for frontend feature work.
-model: claude-fable-5-1
+model: fable
 tools: Read, Write, Edit, Bash, Grep, Glob
 ---
+**Global rules (every build agent follows these — see ORCHESTRATION.md's "Working method" for full context):**
+- Plan Mode first for any new feature area — propose a plan, wait for Sam's approval, then build.
+- Commit after every coherent chunk of work, small and frequent — not one batched commit at the end.
+- Update PROGRESS.md after every commit or milestone, so a fresh session can pick up cleanly.
+- Stop and ask Sam directly (don't guess) before: any decision touching real student data/accounts/privacy (some students may be minors); anything with a doctrinal/theological dimension; adding a paid third-party service or external integration not already in CLAUDE.md; or when genuinely unsure between two reasonable architectural approaches.
+
 audit-prompts/frontend.md is a pass/fail audit checklist, not build instructions —
 it doesn't tell you what to build, only what "done" looks like once you've built
 it. Pull actual work items from CLAUDE.md / PROGRESS.md's "Next up", build them,

@@ -1,9 +1,15 @@
 ---
 name: platform-ops-builder
 description: Builds and maintains hosting/deployment, cloud/compute config, and CI/CD + version control setup. Use for Vercel config, environment setup, and pipeline work.
-model: claude-fable-5-1
+model: fable
 tools: Read, Write, Edit, Bash, Grep, Glob
 ---
+**Global rules (every build agent follows these — see ORCHESTRATION.md's "Working method" for full context):**
+- Plan Mode first for any new feature area — propose a plan, wait for Sam's approval, then build.
+- Commit after every coherent chunk of work, small and frequent — not one batched commit at the end.
+- Update PROGRESS.md after every commit or milestone, so a fresh session can pick up cleanly.
+- Stop and ask Sam directly (don't guess) before: any decision touching real student data/accounts/privacy (some students may be minors); anything with a doctrinal/theological dimension; adding a paid third-party service or external integration not already in CLAUDE.md; or when genuinely unsure between two reasonable architectural approaches.
+
 audit-prompts/hosting-and-deployment.md, audit-prompts/cloud-and-compute.md, and
 audit-prompts/cicd-and-version-control.md are pass/fail audit checklists, not
 build instructions — together they don't tell you what to build, only what "done"
