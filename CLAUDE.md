@@ -69,40 +69,57 @@ All role checks happen **server-side only**. Never trust the client for permissi
 - Password reset via email link
 - Phone OTP means students who forget their password can still access via phone
 
-## Project Structure (planned)
+## Project Structure
+
+Route groups don't appear in URLs, so each role's surface gets a distinct URL prefix. Students (the primary mobile audience) get the unprefixed URLs; professors and admins get prefixes the proxy can gate on.
+
+| Role | URLs | Route group |
+|---|---|---|
+| Student | `/dashboard`, `/courses/[courseId]`, … | `app/(student)/` |
+| Professor (and admin) | `/professor`, `/professor/courses/[courseId]`, … | `app/(professor)/professor/` |
+| Admin | `/admin`, … | `app/(admin)/admin/` |
+| Signed out | `/login`, `/register`, `/reset-password` | `app/(auth)/` |
+| Recovery session | `/update-password` | `app/(auth)/` |
 
 ```
 /
-├── app/                        # Next.js App Router
-│   ├── (auth)/                 # Login, register, reset-password pages
-│   ├── (student)/              # Student-facing routes
+├── app/
+│   ├── page.tsx                # "/" redirects: signed-out → /login, else role home
+│   ├── (auth)/                 # login, register, reset-password, update-password
+│   ├── (student)/              # layout: requireUser()
 │   │   ├── dashboard/
 │   │   └── courses/[courseId]/
-│   ├── (professor)/            # Professor-facing routes
-│   │   ├── dashboard/
+│   ├── (professor)/professor/  # layout: requireRole("professor","admin")
 │   │   └── courses/[courseId]/
-│   ├── (admin)/                # Admin routes (scope TBD)
-│   └── api/                    # API route handlers
-│       ├── auth/
-│       ├── courses/
-│       ├── lectures/
-│       ├── exams/
-│       ├── assignments/
-│       └── forum/
-├── components/                 # Shared React components
-│   ├── ui/                     # Generic UI primitives
-│   ├── video-player/           # Custom anti-scrub video player
-│   ├── exam-builder/           # Professor exam creation
-│   └── forum/
+│   ├── (admin)/admin/          # layout: requireRole("admin")
+│   └── api/                    # Route handlers — only for non-form traffic (see API.md)
+│       └── auth/callback/      # PKCE code exchange for email links
+├── components/
+│   ├── ui/                     # Button, SubmitButton, Input, Field, Card, Alert
+│   ├── app-shell.tsx           # Authenticated chrome (nav + sign-out)
+│   ├── video-player/           # (next phase) custom anti-scrub player
+│   ├── exam-builder/           # (next phase)
+│   └── forum/                  # (next phase)
 ├── lib/
 │   ├── db/                     # Drizzle schema + client
+│   ├── data/                   # Query functions; each takes the acting user id and encodes permission in the query
 │   ├── supabase/               # Supabase client helpers (server / client)
-│   └── auth/                   # Auth utilities, session helpers
-├── proxy.ts                    # Route protection (Next.js 16 renamed middleware.ts → proxy.ts)
+│   ├── auth/                   # actions.ts (server actions), session.ts (getCurrentUser/require*/assert*), roles.ts (pure path/role rules)
+│   ├── validation/             # zod schemas + parseFormData
+│   ├── rate-limit/             # Postgres-backed limiter
+│   └── api/                    # respond.ts: JSON error helpers for route handlers
+├── drizzle/                    # Versioned SQL migrations + meta (committed)
+├── proxy.ts                    # Gate 1: session + role-prefix redirect (Next.js 16 renamed middleware.ts → proxy.ts)
 └── drizzle.config.ts
 ```
 
-Note: `proxy.ts` currently only redirects unauthenticated users to `/login`; it does not yet gate `(student)/(professor)/(admin)` route groups by role. Role checks still need to happen server-side in each route/action regardless — see API Security Rules below.
+### Authorization chain (three gates)
+1. **`proxy.ts`** — runs on every request. Verifies the JWT, redirects signed-out users to `/login?next=…`, and bounces users whose token role doesn't match the path prefix (`/professor/*`, `/admin/*`). Convenience only; the role claim can lag a DB change by one token refresh.
+2. **Route-group layouts** — `requireUser()` / `requireRole(...)` from `lib/auth/session.ts`, which verify the session with the auth server and read the role from the `users` table.
+3. **Every page, server action, and route handler** calls `requireUser`/`requireRole` (pages) or `assertUser`/`assertRole` (actions/handlers) itself, and every `lib/data/*` function takes the acting user's id and enforces enrollment/ownership inside the query. Layouts don't re-run on sibling navigation, so gate 2 alone is never enough.
+
+### Data access model
+All reads and writes go through Drizzle server-side. Every table has RLS enabled with no policies and PostgREST grants revoked (`drizzle/0001`, `0002`), so the Supabase REST API with the anon key is a wall, not a data path. The `public.users` row is created by a trigger on `auth.users` (`drizzle/0003`); app code never inserts it. `users.role` is mirrored into the JWT's `app_metadata.role` by trigger.
 
 ## API Security Rules (non-negotiable)
 
