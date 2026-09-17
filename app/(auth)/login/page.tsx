@@ -1,72 +1,54 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { Suspense, useActionState, useState, useTransition } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { signInWithEmail, sendPhoneOTP, verifyPhoneOTP } from "@/lib/auth/actions";
+import type { ActionState } from "@/lib/validation/form";
+import { Card } from "@/components/ui/card";
+import { Field } from "@/components/ui/field";
+import { Alert } from "@/components/ui/alert";
+import { SubmitButton } from "@/components/ui/submit-button";
+import { Button } from "@/components/ui/button";
 
 type Tab = "email" | "phone";
-type PhoneStep = "enter" | "verify";
 
 export default function LoginPage() {
+  // useSearchParams() needs a Suspense boundary so the shell can prerender.
+  return (
+    <Suspense fallback={<Card><h1 className="text-2xl font-semibold text-slate-900">Sign in</h1></Card>}>
+      <LoginCard />
+    </Suspense>
+  );
+}
+
+function LoginCard() {
   const [tab, setTab] = useState<Tab>("email");
-  const [phoneStep, setPhoneStep] = useState<PhoneStep>("enter");
-  const [phone, setPhone] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
-
-  function handleEmailSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setError(null);
-    const formData = new FormData(e.currentTarget);
-    startTransition(async () => {
-      const result = await signInWithEmail(null, formData);
-      if (result?.error) setError(result.error);
-    });
-  }
-
-  function handleSendOTP(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setError(null);
-    startTransition(async () => {
-      const result = await sendPhoneOTP(phone);
-      if (result?.error) setError(result.error);
-      else setPhoneStep("verify");
-    });
-  }
-
-  function handleVerifyOTP(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setError(null);
-    const token = (e.currentTarget.elements.namedItem("token") as HTMLInputElement).value;
-    startTransition(async () => {
-      const result = await verifyPhoneOTP(phone, token);
-      if (result?.error) setError(result.error);
-    });
-  }
-
-  function switchTab(t: Tab) {
-    setTab(t);
-    setPhoneStep("enter");
-    setPhone("");
-    setError(null);
-  }
+  const searchParams = useSearchParams();
+  const next = searchParams.get("next") ?? undefined;
+  const linkError = searchParams.get("error");
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
+    <Card>
       <h1 className="text-2xl font-semibold text-slate-900 mb-1">Sign in</h1>
       <p className="text-sm text-slate-500 mb-6">Welcome back</p>
 
-      {/* Tabs */}
-      <div className="flex rounded-lg bg-slate-100 p-1 mb-6 gap-1">
+      {linkError === "link" && (
+        <div className="mb-4">
+          <Alert tone="error">That link is invalid or has expired. Please request a new one.</Alert>
+        </div>
+      )}
+
+      <div role="tablist" className="flex rounded-lg bg-slate-100 p-1 mb-6 gap-1">
         {(["email", "phone"] as Tab[]).map((t) => (
           <button
             key={t}
+            role="tab"
             type="button"
-            onClick={() => switchTab(t)}
+            aria-selected={tab === t}
+            onClick={() => setTab(t)}
             className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${
-              tab === t
-                ? "bg-white text-slate-900 shadow-sm"
-                : "text-slate-500 hover:text-slate-700"
+              tab === t ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
             }`}
           >
             {t === "email" ? "Email" : "Phone"}
@@ -74,66 +56,7 @@ export default function LoginPage() {
         ))}
       </div>
 
-      {/* Error */}
-      {error && (
-        <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4">
-          {error}
-        </p>
-      )}
-
-      {/* Email form */}
-      {tab === "email" && (
-        <form onSubmit={handleEmailSubmit} className="space-y-4">
-          <Field label="Email" name="email" type="email" autoComplete="email" placeholder="you@example.com" />
-          <Field label="Password" name="password" type="password" autoComplete="current-password" placeholder="••••••••" />
-          <SubmitButton loading={isPending}>Sign in</SubmitButton>
-          <p className="text-center text-sm text-slate-500">
-            <Link href="/reset-password" className="text-slate-700 underline underline-offset-2">
-              Forgot password?
-            </Link>
-          </p>
-        </form>
-      )}
-
-      {/* Phone form — step 1 */}
-      {tab === "phone" && phoneStep === "enter" && (
-        <form onSubmit={handleSendOTP} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">
-              Phone number
-            </label>
-            <input
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="+1 234 567 8900"
-              autoComplete="tel"
-              required
-              className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent"
-            />
-            <p className="mt-1.5 text-xs text-slate-400">Include country code (e.g. +1)</p>
-          </div>
-          <SubmitButton loading={isPending}>Send OTP code</SubmitButton>
-        </form>
-      )}
-
-      {/* Phone form — step 2 */}
-      {tab === "phone" && phoneStep === "verify" && (
-        <form onSubmit={handleVerifyOTP} className="space-y-4">
-          <p className="text-sm text-slate-500">
-            Code sent to <span className="font-medium text-slate-700">{phone}</span>
-          </p>
-          <Field label="Verification code" name="token" type="text" inputMode="numeric" autoComplete="one-time-code" placeholder="123456" />
-          <SubmitButton loading={isPending}>Verify code</SubmitButton>
-          <button
-            type="button"
-            onClick={() => { setPhoneStep("enter"); setError(null); }}
-            className="w-full text-sm text-slate-500 hover:text-slate-700"
-          >
-            ← Back
-          </button>
-        </form>
-      )}
+      {tab === "email" ? <EmailForm next={next} /> : <PhoneForm next={next} />}
 
       <p className="mt-6 text-center text-sm text-slate-500">
         Don&apos;t have an account?{" "}
@@ -141,52 +64,127 @@ export default function LoginPage() {
           Sign up
         </Link>
       </p>
-    </div>
+    </Card>
   );
 }
 
-function Field({
-  label,
-  name,
-  type,
-  placeholder,
-  autoComplete,
-  inputMode,
-}: {
-  label: string;
-  name: string;
-  type: string;
-  placeholder?: string;
-  autoComplete?: string;
-  inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
-}) {
+function EmailForm({ next }: { next?: string }) {
+  const [state, action] = useActionState<ActionState, FormData>(signInWithEmail, null);
+
   return (
-    <div>
-      <label htmlFor={name} className="block text-sm font-medium text-slate-700 mb-1.5">
-        {label}
-      </label>
-      <input
-        id={name}
-        name={name}
-        type={type}
-        placeholder={placeholder}
-        autoComplete={autoComplete}
-        inputMode={inputMode}
+    <form action={action} className="space-y-4" noValidate>
+      {next && <input type="hidden" name="next" value={next} />}
+      {state?.error && <Alert tone="error">{state.error}</Alert>}
+      <Field
+        label="Email"
+        name="email"
+        type="email"
+        autoComplete="email"
+        placeholder="you@example.com"
         required
-        className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent"
+        defaultValue={state?.values?.email}
+        errors={state?.fieldErrors?.email}
       />
-    </div>
+      <Field
+        label="Password"
+        name="password"
+        type="password"
+        autoComplete="current-password"
+        placeholder="••••••••"
+        required
+        errors={state?.fieldErrors?.password}
+      />
+      <SubmitButton pendingLabel="Signing in…">Sign in</SubmitButton>
+      <p className="text-center text-sm text-slate-500">
+        <Link href="/reset-password" className="text-slate-700 underline underline-offset-2">
+          Forgot password?
+        </Link>
+      </p>
+    </form>
   );
 }
 
-function SubmitButton({ children, loading }: { children: React.ReactNode; loading: boolean }) {
+function PhoneForm({ next }: { next?: string }) {
+  const [step, setStep] = useState<"enter" | "verify">("enter");
+  const [phone, setPhone] = useState("");
+  const [state, setState] = useState<ActionState>(null);
+  const [isPending, startTransition] = useTransition();
+
+  function handleSend(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const value = new FormData(e.currentTarget).get("phone");
+    startTransition(async () => {
+      const result = await sendPhoneOTP({ phone: String(value ?? "") });
+      setState(result);
+      if (result?.success) {
+        setPhone(result.values?.phone ?? String(value ?? ""));
+        setStep("verify");
+      }
+    });
+  }
+
+  function handleVerify(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const token = new FormData(e.currentTarget).get("token");
+    startTransition(async () => {
+      const result = await verifyPhoneOTP({ phone, token: String(token ?? ""), next });
+      // On success the action redirects and never resolves here.
+      setState(result);
+    });
+  }
+
+  if (step === "verify") {
+    return (
+      <form onSubmit={handleVerify} className="space-y-4" noValidate>
+        {state?.error && <Alert tone="error">{state.error}</Alert>}
+        <p className="text-sm text-slate-500">
+          Code sent to <span className="font-medium text-slate-700">{phone}</span>
+        </p>
+        <Field
+          label="Verification code"
+          name="token"
+          type="text"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          placeholder="123456"
+          maxLength={6}
+          required
+          errors={state?.fieldErrors?.token}
+        />
+        <Button type="submit" fullWidth disabled={isPending} aria-busy={isPending}>
+          {isPending ? "Verifying…" : "Verify code"}
+        </Button>
+        <Button
+          variant="ghost"
+          fullWidth
+          onClick={() => {
+            setStep("enter");
+            setState(null);
+          }}
+        >
+          ← Back
+        </Button>
+      </form>
+    );
+  }
+
   return (
-    <button
-      type="submit"
-      disabled={loading}
-      className="w-full bg-slate-900 text-white rounded-lg py-2.5 text-sm font-medium hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-    >
-      {loading ? "Please wait…" : children}
-    </button>
+    <form onSubmit={handleSend} className="space-y-4" noValidate>
+      {state?.error && <Alert tone="error">{state.error}</Alert>}
+      <Field
+        label="Phone number"
+        name="phone"
+        type="tel"
+        autoComplete="tel"
+        placeholder="+1 555 123 4567"
+        required
+        defaultValue={state?.values?.phone}
+        errors={state?.fieldErrors?.phone}
+        hint="Include your country code (e.g. +1). Phone sign-in works for accounts that already have a phone number."
+      />
+      <Button type="submit" fullWidth disabled={isPending} aria-busy={isPending}>
+        {isPending ? "Sending…" : "Send code"}
+      </Button>
+    </form>
   );
 }

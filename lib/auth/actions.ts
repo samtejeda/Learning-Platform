@@ -2,80 +2,134 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { parseFormData, parseObject, type ActionState } from "@/lib/validation/form";
+import {
+  resetRequestSchema,
+  sendOtpSchema,
+  signInSchema,
+  signUpSchema,
+  verifyOtpSchema,
+} from "@/lib/validation/auth";
+import { safeNextPath } from "./roles";
 
-export async function signInWithEmail(_: unknown, formData: FormData) {
-  const email = (formData.get("email") as string).trim().toLowerCase();
-  const password = formData.get("password") as string;
+// Conventions (see API.md):
+//  - Form actions: (prev: ActionState, formData) => Promise<ActionState>.
+//  - Expected failures RETURN { error }; never throw.
+//  - redirect() only on success, never inside try/catch.
+//  - Error messages never reveal whether an account exists.
 
-  if (!email || !password) return { error: "Email and password are required." };
+const GENERIC_SIGN_IN_ERROR = "Invalid email or password.";
+const GENERIC_OTP_ERROR = "Invalid or expired code.";
+const SIGN_UP_SUCCESS = "Account created! Check your email to confirm before signing in.";
+
+function destination(next: string | undefined): string {
+  const safe = safeNextPath(next);
+  // "/" is the role router (app/page.tsx); it lands the user on their home.
+  return safe === "/" ? "/" : safe;
+}
+
+export async function signInWithEmail(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = parseFormData(signInSchema, formData);
+  if (!parsed.ok) return parsed.state;
+  const { email, password, next } = parsed.data;
 
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) {
+    return { error: GENERIC_SIGN_IN_ERROR, values: { email } };
+  }
 
-  if (error) return { error: error.message };
-
-  redirect("/dashboard");
+  redirect(destination(next));
 }
 
-export async function sendPhoneOTP(phone: string) {
-  const normalized = phone.trim();
-  if (!normalized) return { error: "Phone number is required." };
+export async function sendPhoneOTP(input: { phone: string }): Promise<ActionState> {
+  const parsed = parseObject(sendOtpSchema, input);
+  if (!parsed.ok) return parsed.state;
+  const { phone } = parsed.data;
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithOtp({ phone: normalized });
-
-  if (error) return { error: error.message };
-  return { success: true };
-}
-
-export async function verifyPhoneOTP(phone: string, token: string) {
-  const supabase = await createClient();
-  const { error } = await supabase.auth.verifyOtp({
+  const { error } = await supabase.auth.signInWithOtp({
     phone,
-    token,
-    type: "sms",
+    // Sign-in only: a phone number that isn't already on an account cannot
+    // create one (decision: no self-provisioning by phone, minors may use
+    // the platform). Supabase returns an error for unknown numbers; we
+    // return the same message either way so numbers can't be enumerated.
+    options: { shouldCreateUser: false },
   });
-
-  if (error) return { error: error.message };
-
-  redirect("/dashboard");
+  if (error) {
+    return {
+      error: "We couldn't send a code to that number. Check it and try again.",
+      values: { phone },
+    };
+  }
+  return { success: "Code sent.", values: { phone } };
 }
 
-export async function signUp(_: unknown, formData: FormData) {
-  const fullName = (formData.get("fullName") as string).trim();
-  const email = (formData.get("email") as string).trim().toLowerCase();
-  const password = formData.get("password") as string;
-  const confirmPassword = formData.get("confirmPassword") as string;
+export async function verifyPhoneOTP(input: {
+  phone: string;
+  token: string;
+  next?: string;
+}): Promise<ActionState> {
+  const parsed = parseObject(verifyOtpSchema, input);
+  if (!parsed.ok) return parsed.state;
+  const { phone, token, next } = parsed.data;
 
-  if (!fullName || !email || !password)
-    return { error: "All fields are required." };
-  if (password !== confirmPassword)
-    return { error: "Passwords do not match." };
-  if (password.length < 8)
-    return { error: "Password must be at least 8 characters." };
+  const supabase = await createClient();
+  const { error } = await supabase.auth.verifyOtp({ phone, token, type: "sms" });
+  if (error) return { error: GENERIC_OTP_ERROR, values: { phone } };
+
+  redirect(destination(next));
+}
+
+export async function signUp(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const parsed = parseFormData(signUpSchema, formData);
+  if (!parsed.ok) return parsed.state;
+  const { fullName, email, password } = parsed.data;
 
   const supabase = await createClient();
   // The public.users profile row is created by a database trigger on
   // auth.users insert (drizzle/0003_auth_user_triggers.sql), so it can't
   // drift from the auth record. full_name travels via user metadata.
-  const { data, error } = await supabase.auth.signUp({
+  const { error } = await supabase.auth.signUp({
     email,
     password,
     options: { data: { full_name: fullName } },
   });
 
-  if (error) return { error: error.message };
-  if (!data.user) return { error: "Sign up failed. Please try again." };
+  if (error) {
+    // Never reveal whether an email is already registered: an existing
+    // account gets the same "check your email" message as a new one.
+    // (With confirmations on, Supabase already obfuscates this case.)
+    if (error.code === "user_already_exists" || error.code === "email_exists") {
+      return { success: SIGN_UP_SUCCESS };
+    }
+    if (error.code === "weak_password") {
+      return {
+        error: "That password is too easy to guess. Try a longer one.",
+        fieldErrors: { password: ["That password is too easy to guess. Try a longer one."] },
+        values: { fullName, email },
+      };
+    }
+    if (error.code === "over_email_send_rate_limit") {
+      return { error: "Too many sign-up attempts. Please try again later.", values: { fullName, email } };
+    }
+    console.error("[auth] signUp error:", error.code ?? error.status, error.message);
+    return { error: "Sign up is unavailable right now. Please try again.", values: { fullName, email } };
+  }
 
-  return {
-    success:
-      "Account created! Check your email to confirm before signing in.",
-  };
+  return { success: SIGN_UP_SUCCESS };
 }
 
-export async function requestPasswordReset(_: unknown, formData: FormData) {
-  const email = (formData.get("email") as string).trim().toLowerCase();
-  if (!email) return { error: "Email is required." };
+export async function requestPasswordReset(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = parseFormData(resetRequestSchema, formData);
+  if (!parsed.ok) return parsed.state;
+  const { email } = parsed.data;
 
   const supabase = await createClient();
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
@@ -83,7 +137,7 @@ export async function requestPasswordReset(_: unknown, formData: FormData) {
   });
 
   // Always return success to avoid leaking whether an email exists
-  if (error) console.error("Password reset error:", error.message);
+  if (error) console.error("[auth] password reset error:", error.message);
   return { success: "If that email is registered, a reset link is on its way." };
 }
 
