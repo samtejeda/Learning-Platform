@@ -6,7 +6,7 @@ Last reconciled: 2026-09-17 (full file-by-file inventory; foundation phase plan 
 
 ## Foundation phase (2026-09-17) — commit log
 - [x] 1. `proxy.ts` exported `middleware` and `runtime`; Next 16 requires a `proxy` export and forbids segment config in that file, so the auth gate never ran and `pnpm build` failed. Fixed. `drizzle/meta/` un-ignored so migrations can be versioned. `DIRECT_URL` added to `.env.local.example`.
-- [ ] 2. Versioned migrations (`drizzle-kit generate` + `migrate`), remove `db:push`.
+- [x] 2. Versioned migrations: `drizzle/0000_init.sql` + `drizzle/meta/` committed; `db:push` removed; `db:check` added; `drizzle.config.ts` uses `DIRECT_URL`. **Not yet applied** (DB unreachable). When it's back: if the DB is empty run `pnpm db:migrate`. If the schema already exists from an old `db:push` and holds no real data, baseline first: `CREATE SCHEMA IF NOT EXISTS drizzle; CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (id serial PRIMARY KEY, hash text NOT NULL, created_at bigint); INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ('<sha256 of drizzle/0000_init.sql>', <"when" from drizzle/meta/_journal.json entry 0>);` then `pnpm db:migrate`. If it holds real student data, stop and ask Sam.
 - [ ] 3. Deny-all RLS on every table + revoke PostgREST grants from `anon`/`authenticated`.
 - [ ] 4. `auth.users` triggers: create `public.users` row, sync contact, sync `role` into JWT `app_metadata`.
 - [ ] 5. Vitest; `lib/auth/roles.ts`, `lib/auth/session.ts`, `lib/api/respond.ts`.

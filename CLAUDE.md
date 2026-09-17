@@ -140,10 +140,15 @@ Key tables to plan:
 Primary target is phone users. Design and test mobile layouts first. Desktop is secondary but equally important.
 
 ## Development Commands
-(to be filled in once project is scaffolded)
 ```
-pnpm dev        # start dev server
-pnpm build      # production build
-pnpm db:push    # push Drizzle schema to Supabase
-pnpm db:studio  # open Drizzle Studio
+pnpm dev          # start dev server
+pnpm build        # production build
+pnpm lint         # eslint
+pnpm test         # vitest (unit tests under lib/**)
+pnpm db:generate  # diff lib/db/schema.ts against drizzle/meta and write a new migration
+pnpm db:migrate   # apply pending migrations in drizzle/ (run before every deploy)
+pnpm db:check     # verify drizzle/ migrations + snapshots are consistent
+pnpm db:studio    # open Drizzle Studio
 ```
+
+Migrations are versioned in `drizzle/` and committed (including `drizzle/meta/`). There is deliberately no `db:push` script: push applies schema changes without recording them in the journal and desyncs the DB from `drizzle/`. Schema change workflow: edit `lib/db/schema.ts` → `pnpm db:generate` → review the SQL → commit → `pnpm db:migrate`. For SQL that Drizzle can't model (grants, triggers, functions) use `pnpm drizzle-kit generate --custom --name=<slug>` and write the SQL by hand.
