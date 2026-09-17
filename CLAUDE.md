@@ -3,11 +3,25 @@
 ## What this is
 A mobile-first web learning platform similar to Blackboard. Students watch video lectures, complete exams and assignments, and participate in forums. Professors create content and grade work. Admins manage the platform.
 
+## Current deployment context
+The first real deployment of this platform is for a **Bible academy**. That's a client/tenant decision, not an architectural one: naming, schema, routes, and branding stay generic (`courses`, `lectures`, `professor`, not devotional-specific terms) so the same codebase can be reused as a template for other institutions later. Devotional/theological content is just course content from the platform's point of view.
+
+Two things this context does change, regardless of branding:
+- **Minors.** Some students at a church academy may be minors. Err conservative on data collection, default visibility, and access control anywhere student PII or activity data is involved. Treat this as a "stop and ask Sam" trigger, not a judgment call to make solo — see `ORCHESTRATION.md`.
+- **Doctrinal content.** Any wording with a theological/doctrinal dimension (e.g. comprehension-question answer keys, forum moderation policy) is a "stop and ask Sam" trigger, not something to author or resolve unilaterally.
+
+## Build orchestration
+This project is being built with a multi-agent, minimal-check-in workflow. See:
+- `ORCHESTRATION.md` — the working method, priority order, model handoff, and the 6 named build agents
+- `PROGRESS.md` — current source of truth for what's done / in progress / next / open questions (read this before resuming work in a new session)
+- `audit-prompts/` — 13 pass/fail audit checklists (definition-of-done, not build instructions) each build agent re-reads from disk and scores its own work against regularly, not just once
+- `.claude/agents/` — the 6 build agent definitions
+
 ## Tech Stack
 
 | Layer | Choice | Notes |
 |---|---|---|
-| Framework | Next.js 15 (App Router) + TypeScript | Fullstack — frontend + API routes in one repo |
+| Framework | Next.js 16 (App Router) + TypeScript | Fullstack — frontend + API routes in one repo. Next 16 renamed `middleware.ts` to `proxy.ts`; see Project Structure below. |
 | Database | Supabase (Postgres) | Also handles Auth and Storage |
 | ORM | Drizzle ORM | Type-safe, pairs well with Supabase Postgres |
 | Auth | Supabase Auth | Email+password and phone OTP (Twilio integration) |
@@ -84,9 +98,11 @@ All role checks happen **server-side only**. Never trust the client for permissi
 │   ├── db/                     # Drizzle schema + client
 │   ├── supabase/               # Supabase client helpers (server / client)
 │   └── auth/                   # Auth utilities, session helpers
-├── middleware.ts               # Route protection by role
+├── proxy.ts                    # Route protection (Next.js 16 renamed middleware.ts → proxy.ts)
 └── drizzle.config.ts
 ```
+
+Note: `proxy.ts` currently only redirects unauthenticated users to `/login`; it does not yet gate `(student)/(professor)/(admin)` route groups by role. Role checks still need to happen server-side in each route/action regardless — see API Security Rules below.
 
 ## API Security Rules (non-negotiable)
 
