@@ -8,6 +8,20 @@
       "when": 1789668823221,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789668954034,
+      "tag": "0001_enable_rls",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789668959731,
+      "tag": "0002_revoke_postgrest_grants",
+      "breakpoints": true
     }
   ]
 }

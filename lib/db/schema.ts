@@ -13,6 +13,15 @@ import {
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
+// ─── Access model ─────────────────────────────────────────────────────────────
+// Every table has Row Level Security enabled with NO policies (deny-all), and
+// PostgREST grants are revoked from `anon`/`authenticated` (see
+// drizzle/0002_revoke_postgrest_grants.sql). All application data access goes
+// through Drizzle server-side as the table owner, where role/ownership checks
+// live in code (lib/auth/session.ts + lib/data/*). The Supabase REST API is
+// therefore a wall, not a data path. Add a pgPolicy only if a client-side
+// reader (e.g. Realtime) is introduced, and only for that table.
+
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
 export const userRoleEnum = pgEnum("user_role", [
@@ -44,7 +53,7 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
-});
+}).enableRLS();
 
 // ─── Courses ──────────────────────────────────────────────────────────────────
 
@@ -61,7 +70,7 @@ export const courses = pgTable("courses", {
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
-});
+}).enableRLS();
 
 // ─── Enrollments ──────────────────────────────────────────────────────────────
 
@@ -80,7 +89,7 @@ export const enrollments = pgTable(
       .defaultNow(),
   },
   (t) => [uniqueIndex("enrollments_student_course_idx").on(t.studentId, t.courseId)]
-);
+).enableRLS();
 
 // ─── Lectures ─────────────────────────────────────────────────────────────────
 
@@ -110,7 +119,7 @@ export const lectures = pgTable(
       .defaultNow(),
   },
   (t) => [index("lectures_course_order_idx").on(t.courseId, t.order)]
-);
+).enableRLS();
 
 // ─── Lecture Progress ─────────────────────────────────────────────────────────
 
@@ -137,7 +146,7 @@ export const lectureProgress = pgTable(
       t.lectureId
     ),
   ]
-);
+).enableRLS();
 
 // ─── Exams ────────────────────────────────────────────────────────────────────
 
@@ -156,7 +165,7 @@ export const exams = pgTable("exams", {
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
-});
+}).enableRLS();
 
 // ─── Exam Questions ───────────────────────────────────────────────────────────
 
@@ -179,7 +188,7 @@ export const examQuestions = pgTable(
       .defaultNow(),
   },
   (t) => [index("exam_questions_exam_order_idx").on(t.examId, t.order)]
-);
+).enableRLS();
 
 // ─── Exam Submissions ─────────────────────────────────────────────────────────
 
@@ -208,7 +217,7 @@ export const examSubmissions = pgTable(
     // One submission per student per exam
     uniqueIndex("exam_submissions_student_exam_idx").on(t.studentId, t.examId),
   ]
-);
+).enableRLS();
 
 // ─── Exam Answers ─────────────────────────────────────────────────────────────
 
@@ -224,7 +233,7 @@ export const examAnswers = pgTable("exam_answers", {
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
-});
+}).enableRLS();
 
 // ─── Assignments ──────────────────────────────────────────────────────────────
 
@@ -242,7 +251,7 @@ export const assignments = pgTable("assignments", {
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
-});
+}).enableRLS();
 
 // ─── Assignment Submissions ───────────────────────────────────────────────────
 
@@ -274,7 +283,7 @@ export const assignmentSubmissions = pgTable(
       t.assignmentId
     ),
   ]
-);
+).enableRLS();
 
 // ─── Forum Posts ──────────────────────────────────────────────────────────────
 
@@ -302,7 +311,7 @@ export const forumPosts = pgTable(
       .defaultNow(),
   },
   (t) => [index("forum_posts_course_idx").on(t.courseId)]
-);
+).enableRLS();
 
 // ─── Forum Replies ────────────────────────────────────────────────────────────
 
@@ -325,7 +334,7 @@ export const forumReplies = pgTable(
       .defaultNow(),
   },
   (t) => [index("forum_replies_post_idx").on(t.postId)]
-);
+).enableRLS();
 
 // ─── Relations ────────────────────────────────────────────────────────────────
 
