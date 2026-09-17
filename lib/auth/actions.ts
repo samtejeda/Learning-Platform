@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getSiteUrl } from "@/lib/env";
+import { enforceAuthRateLimit } from "@/lib/rate-limit";
 import { parseFormData, parseObject, type ActionState } from "@/lib/validation/form";
 import {
   resetRequestSchema,
@@ -39,6 +40,9 @@ export async function signInWithEmail(
   if (!parsed.ok) return parsed.state;
   const { email, password, next } = parsed.data;
 
+  const limited = await enforceAuthRateLimit("login", email);
+  if (limited) return { error: limited, values: { email } };
+
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
@@ -52,6 +56,9 @@ export async function sendPhoneOTP(input: { phone: string }): Promise<ActionStat
   const parsed = parseObject(sendOtpSchema, input);
   if (!parsed.ok) return parsed.state;
   const { phone } = parsed.data;
+
+  const limited = await enforceAuthRateLimit("otp_send", phone);
+  if (limited) return { error: limited, values: { phone } };
 
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithOtp({
@@ -80,6 +87,9 @@ export async function verifyPhoneOTP(input: {
   if (!parsed.ok) return parsed.state;
   const { phone, token, next } = parsed.data;
 
+  const limited = await enforceAuthRateLimit("otp_verify", phone);
+  if (limited) return { error: limited, values: { phone } };
+
   const supabase = await createClient();
   const { error } = await supabase.auth.verifyOtp({ phone, token, type: "sms" });
   if (error) return { error: GENERIC_OTP_ERROR, values: { phone } };
@@ -91,6 +101,9 @@ export async function signUp(_prev: ActionState, formData: FormData): Promise<Ac
   const parsed = parseFormData(signUpSchema, formData);
   if (!parsed.ok) return parsed.state;
   const { fullName, email, password } = parsed.data;
+
+  const limited = await enforceAuthRateLimit("signup", email);
+  if (limited) return { error: limited, values: { fullName, email } };
 
   const supabase = await createClient();
   // The public.users profile row is created by a database trigger on
@@ -138,6 +151,9 @@ export async function requestPasswordReset(
   const parsed = parseFormData(resetRequestSchema, formData);
   if (!parsed.ok) return parsed.state;
   const { email } = parsed.data;
+
+  const limited = await enforceAuthRateLimit("reset_request", email);
+  if (limited) return { error: limited, values: { email } };
 
   const supabase = await createClient();
   const { error } = await supabase.auth.resetPasswordForEmail(email, {

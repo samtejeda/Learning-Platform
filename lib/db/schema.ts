@@ -339,6 +339,19 @@ export const forumReplies = pgTable(
   (t) => [index("forum_replies_post_idx").on(t.postId)]
 ).enableRLS();
 
+// ─── Rate limit buckets ───────────────────────────────────────────────────────
+// Fixed-window counters for lib/rate-limit. Key is "<scope>:<subject>"
+// (e.g. "login:ip:203.0.113.9" or "otp_send:id:+15551234567"). Rows are
+// upserted atomically and swept opportunistically; nothing else reads them.
+
+export const rateLimitBuckets = pgTable("rate_limit_buckets", {
+  key: text("key").primaryKey(),
+  count: integer("count").notNull().default(0),
+  windowStart: timestamp("window_start", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+}).enableRLS();
+
 // ─── Relations ────────────────────────────────────────────────────────────────
 
 export const usersRelations = relations(users, ({ many }) => ({
