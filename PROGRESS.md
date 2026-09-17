@@ -15,28 +15,34 @@ Last reconciled: 2026-09-17 (full file-by-file inventory; foundation phase plan 
 - [x] 8. `GET /api/auth/callback` exchanges the PKCE code from email links for a session and redirects to a sanitised `next`; `/update-password` page + `updatePassword` action (requires the recovery session; re-checked server-side); `lib/env.ts` `getSiteUrl()` (throws in production if `NEXT_PUBLIC_SITE_URL` is unset); sign-up and reset emails now point at the callback. **Sam:** add `<site>/api/auth/callback` to Supabase Auth → URL Configuration → Redirect URLs for localhost and prod, and set Site URL.
 - [x] 9. `rate_limit_buckets` table (`drizzle/0004`), `lib/rate-limit/` (atomic fixed-window upsert, fails closed on DB error; pure policy in `policy.ts` with tests). Applied per IP and per identifier to sign-in, sign-up, OTP send, OTP verify, and reset request, before any Supabase call. Starting limits in `RATE_LIMITS`: login 10/15m IP + 5/15m email; signup 5/h IP + 3/h email; OTP send 10/h IP + 3/h phone; OTP verify 20/10m IP + 5/10m phone; reset 10/h IP + 3/h email. Supabase Auth's own limits remain as a second layer. Migration not yet applied.
 - [x] 10. `next.config.ts`: `poweredByHeader: false`; HSTS (2y, preload), nosniff, `X-Frame-Options: DENY`, Referrer-Policy, Permissions-Policy, and a CSP in **Report-Only** mode (Next inlines scripts; enforce with nonces in the hardening phase). Verified with `curl -I` against `next start`.
-- [ ] 11. `API.md` inventory, docs refresh.
+- [x] 11. `API.md` (conventions, every route handler + server action with auth/rate-limit/schema/output, env vars, migration list). `CLAUDE.md` updated. Audit self-check below.
 
 **Blocked on Sam:** the Supabase project host (`eexfdauqvymkeatjujoo.supabase.co`) does not resolve in DNS as of 2026-09-17 — paused or deleted. Migrations can be generated offline, but applying them (steps 2–4, 9) and live verification wait on restoring/recreating the project. Also `.env.local` needs: the `@` in the `DATABASE_URL` password percent-encoded as `%40`, plus `DIRECT_URL` and `NEXT_PUBLIC_SITE_URL` added.
 
 ## Done
-- Drizzle schema (`lib/db/schema.ts`) covering users, courses, enrollments, lectures, lecture_progress, exams, exam_questions, exam_submissions, exam_answers, assignments, assignment_submissions, forum_posts, forum_replies, with relations wired up.
-- Supabase client helpers (`lib/supabase/client.ts`, `lib/supabase/server.ts`).
-- Auth server actions (`lib/auth/actions.ts`): email+password sign-in, phone OTP send/verify, sign-up (creates matching row in `users` with role `student`), password reset request, sign-out.
-- Auth pages: `app/(auth)/login`, `register`, `reset-password` (+ layout). Real forms wired to the server actions.
-- Authentication gate in `proxy.ts` (Next.js 16's renamed `middleware.ts`): redirects unauthenticated users to `/login?next=…` for any non-public route. Fixed 2026-09-17 (see commit log above); before that the file never ran.
+- Drizzle schema (`lib/db/schema.ts`): 13 domain tables + `rate_limit_buckets`, relations, FKs with delete rules, unique indexes. RLS enabled on all. Versioned in `drizzle/` (0000–0004).
+- Supabase client helpers (`lib/supabase/client.ts`, `lib/supabase/server.ts`). No service-role key anywhere, by design.
+- Auth: email+password sign-in, phone OTP sign-in (existing accounts only), email sign-up (student role, profile row via DB trigger), password reset via email link → PKCE callback → `/update-password`, sign-out. All actions zod-validated and rate-limited; generic error copy.
+- Auth pages (`app/(auth)/*`): login (email/phone tabs), register, reset-password, update-password, on React 19 `useActionState` with shared `components/ui` primitives.
+- Authorization chain: `proxy.ts` (JWT role → prefix redirect) → route-group layouts (`requireUser`/`requireRole`) → per-page checks + `lib/data/*` queries that encode enrollment/ownership. See `CLAUDE.md` "Authorization chain".
+- First screens: `/` role router; student `/dashboard` + `/courses/[id]`; professor `/professor` + `/professor/courses/[id]` (admin sees all); `/admin` placeholder.
+- Security headers + report-only CSP in `next.config.ts`.
+- Tooling: vitest (`pnpm test`, 30 tests), `pnpm db:generate|migrate|check`, `API.md` inventory.
 
 ## In progress
-- Foundation phase per the commit log above. Inventory on 2026-09-17 confirmed: `app/(student)`, `app/(professor)`, `app/(admin)`, `app/api/*`, and `components/*` were all **empty directories** (no files), and `app/page.tsx` was the stock create-next-app template. Nothing beyond the auth pages was built.
+- Nothing mid-flight. Foundation phase code is complete and committed; **DB migrations are generated but not applied** because the Supabase project is unreachable (see "Blocked on Sam" above). First thing next session: apply migrations and run the live verification list at the bottom of this file.
 
 ## Next up
-(Priority order per `ORCHESTRATION.md`)
-1. Data models — schema exists; confirm it's pushed to Supabase (`pnpm db:push`) and add any RLS policies (currently none known to exist — this is a gap given Supabase Postgres is the DB).
-2. Auth + roles — add role-based gating in `proxy.ts` and confirm every API route re-checks role/ownership server-side (per API Security Rules in `CLAUDE.md`; not yet audited).
-3. Rate limiting on auth endpoints (login, OTP send, OTP verify) — not implemented yet. This is a non-negotiable per `CLAUDE.md` and currently a real gap: `sendPhoneOTP`/`verifyPhoneOTP`/`signInWithEmail` have no throttling.
-4. Core CRUD for courses/lectures/exams/assignments.
-5. Forum.
-6. Design pass once `DESIGN.md` exists (see `ORCHESTRATION.md`) — hold UI polish until then rather than styling twice.
+(Priority order per `ORCHESTRATION.md`. Each new feature area gets a plan-mode pass first.)
+1. **Apply + verify the foundation** once Supabase is back: `pnpm db:migrate` (baseline first if the old schema exists), then the live verification list below. Add `NEXT_PUBLIC_SITE_URL`, `DIRECT_URL`, fix `DATABASE_URL` encoding, and add the callback URL in the Supabase dashboard.
+2. **Core CRUD — courses & lectures** (`backend-builder` + `frontend-builder`): professor creates/edits courses, enrolls students (by email; decide invite flow), uploads lectures to a **private** Supabase Storage bucket (bucket policy: no public reads; server issues short-lived signed URLs), orders lectures. Student course page shows sections only when content exists. Includes the anti-scrub video player, `POST /api/lectures/[id]/progress` (server-validated ≥ threshold), and `GET /api/lectures/[id]/stream` (signed URL, enrollment-checked). Add each to `API.md`.
+3. **Exams** (builder UI, publish gate, submissions, manual grading; `reference_answer` never sent to students).
+4. **Assignments** (private bucket for uploads, grading).
+5. **Forum** (course-level posts, lecture-anchored posts, replies). Consider Realtime → would need the first real RLS policy.
+6. **Hardening pass**: enforce CSP with nonces; Playwright e2e for auth + role gating; CI runs `lint`, `test`, `build`, `db:check`; `db:migrate` step in deploy.
+7. **Design pass** once `DESIGN.md` exists (vet `npx getdesign` first) — UI is deliberately plain until then.
+8. **Profile: attach/verify a phone** on an existing account (needed now that OTP can't create accounts): `updateUser({ phone })` + `verifyOtp({ type: "phone_change" })`.
+9. **Admin scope** — needs Sam's definition; today roles are changed by SQL.
 
 ## Decisions & assumptions
 - This deployment is for a Bible academy, but the codebase, naming, and schema stay generic/institution-agnostic so it can be reused as a template later — see "Current deployment context" in `CLAUDE.md`. Confirmed by Sam 2026-09-16.
@@ -45,6 +51,62 @@ Last reconciled: 2026-09-17 (full file-by-file inventory; foundation phase plan 
 - Build agents (`.claude/agents/*.md`) are active as of 2026-09-16 — all 13 audit-prompt files now have real content.
 
 ## Open questions for Sam
-- RLS policies: none found in the repo. Given Supabase Postgres is the DB of record and some students may be minors, this should be prioritized alongside auth/role work, not deferred to "security polish" — confirm priority.
-- The orchestration doc's design-system step (`npx getdesign@latest add claude`) runs a third-party npm package from the registry. Worth a quick look at the package before running it, same as any other new dependency — not blocking, just flagging since it wasn't in the original stack list.
-- Admin role scope is still "TBD" per `CLAUDE.md` — needs definition before admin routes are built out.
+- **Supabase project** — restore the paused project or create a new one? Did the old DB hold anything worth keeping (decides the migration baseline path in step 2 of the commit log)?
+- **Production self-registration** given minors: open (as now), invite-only, or admin-provisioned? Dev keeps open registration. Related: professors are promoted by SQL until admin tooling exists.
+- **Role-change lag**: the proxy's coarse redirect reads the role from the JWT, which refreshes hourly; DB-backed checks are immediate. Acceptable, or configure Supabase's Custom Access Token Hook for instant propagation?
+- **CAPTCHA** (Cloudflare Turnstile, free) on register/OTP later — new third-party service, so flagging rather than adding.
+- Supabase dashboard settings to confirm: email confirmations on; "notify user on password change" on; Auth rate limits at defaults; min password length 8; Redirect URLs include `<site>/api/auth/callback`.
+- The `npx getdesign@latest add claude` design step runs a third-party npm package — vet before running.
+- Admin role scope is still TBD.
+- Backups: Supabase free tier has daily backups but no PITR; restore has not been tested. Decide whether that's acceptable before real student data lands.
+
+## Audit self-check (2026-09-17, after commit 11; checklists re-read from disk)
+
+Scored honestly — items that can't be verified until the DB is reachable are marked **unverified**, not pass.
+
+**auth-and-permissions.md** — 4/6 pass, 2 unverified
+- Authentication flow: **pass** — Supabase Auth (bcrypt, email confirmation on, PKCE links).
+- Authorization enforcement: **pass** — three-gate chain; every page/action/handler checks itself; data queries encode ownership.
+- Row-level security: **unverified** — deny-all RLS + revoked grants written (`0001`, `0002`), not applied. App-layer ownership checks are in every query.
+- Session management: **pass** — Supabase sessions (1h JWT, refresh via proxy `getClaims`), `signOut` invalidates. Absolute session lifetime is a dashboard setting to confirm.
+- Password reset: **unverified** — links are single-use PKCE codes with Supabase's expiry; "notify owner on password change" is a dashboard toggle Sam must enable.
+- Protected routes: **pass** — proxy denies by default; only `/login`, `/register`, `/reset-password`, `/api/auth/*` are public. Build output lists every route; all are in `API.md`.
+
+**security-and-rls.md** — 5/7 pass, 1 unverified, 1 n/a
+- RLS on every table: **unverified** (written, not applied). Policies are intentionally none (deny-all).
+- Secrets: **pass** — env only; no service-role key exists; `.env.local` git-ignored.
+- HTTPS: **pass** — Vercel TLS; HSTS + `upgrade-insecure-requests` in prod CSP.
+- Input sanitization: **pass** — zod on every action; Drizzle parameterises SQL; React escapes output.
+- CORS: **n/a** — no cross-origin API consumers; route handlers are same-origin only. Revisit if a mobile client appears.
+- Auth on every endpoint: **pass** — see `API.md`.
+- Security headers: **pass** — CSP is report-only for now (documented why).
+
+**apis-and-backend.md** — 5/6 pass, 1 partial
+- Organization: **pass** — one handler so far, conventions documented.
+- Error handling: **pass** — `ActionState` for actions, `handleRouteError` for handlers; no Supabase messages leak.
+- Input validation: **pass** — zod everywhere.
+- Authentication: **pass**.
+- Response quality: **pass** — explicit column selects; `reference_answer` etc. never selected.
+- Performance: **partial** — course lists are unpaginated (fine at academy scale; revisit with real numbers).
+
+**database-and-storage.md** — 4/6 pass, 2 open
+- Schema design / Relationships / Unique constraints / Indexes: **pass** (FKs with cascade/restrict/set-null, unique email/phone/enrollment/progress/submission, order indexes).
+- File storage: **open** — Storage buckets not created yet (next phase; must be private).
+- Backups: **open** — see questions.
+
+**rate-limiting.md** — 3/7 pass, 4 open (most items are ops/cost, `resilience-builder`'s domain)
+- Limits on expensive endpoints: **pass** — OTP send 3/h per phone, 10/h per IP (Twilio spend); all auth endpoints limited.
+- Billing alerts: **open** — Twilio/Supabase spend alerts are dashboard config for Sam.
+- Debouncing: **n/a** — no search/autocomplete yet.
+- 429 handling: **pass** — limiter returns a wait time and human copy; no retry loops needed for form submits.
+- API key management: **pass** — env-scoped; separate Supabase projects per env is the Vercel-env convention to follow.
+- Usage monitoring / cost per feature: **open** — no logging/metrics stack yet (resilience phase).
+
+## Live verification checklist (run once the DB is reachable)
+1. `pnpm db:migrate` twice (second is a no-op); `pnpm db:check`; `pnpm db:generate` says no changes.
+2. SQL: `select tablename, rowsecurity from pg_tables where schemaname='public'` → all true; `select grantee, table_name from information_schema.role_table_grants where table_schema='public' and grantee in ('anon','authenticated')` → 0 rows; `select tgname from pg_trigger where not tgisinternal` → `on_auth_user_created`, `on_auth_user_contact_updated`, `on_public_user_role_changed`.
+3. PostgREST with the anon key: `GET /rest/v1/users?select=id&limit=1` → 401/403 with `42501`, not `200 []`; `POST /rest/v1/forum_posts` denied; `GET /rest/v1/` lists no tables.
+4. Register → confirmation email → `/api/auth/callback` → `/dashboard`; `public.users` row exists with `role='student'` and `auth.users.raw_app_meta_data.role='student'`.
+5. Six wrong passwords → rate-limit message; reset link → `/update-password` → new password signs in; OTP for an unknown phone → error and no new auth user.
+6. Student visits `/professor` and `/admin` → sent to `/dashboard`. Promote via SQL, sign out/in → `/` lands on `/professor`; `/courses/<unenrolled id>` → 404.
+7. `curl -I <site>/login` → security headers present, no `x-powered-by`.

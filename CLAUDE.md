@@ -16,6 +16,7 @@ This project is being built with a multi-agent, minimal-check-in workflow. See:
 - `PROGRESS.md` — current source of truth for what's done / in progress / next / open questions (read this before resuming work in a new session)
 - `audit-prompts/` — 13 pass/fail audit checklists (definition-of-done, not build instructions) each build agent re-reads from disk and scores its own work against regularly, not just once
 - `.claude/agents/` — the 6 build agent definitions
+- `API.md` — inventory of every route handler and server action, plus the conventions they follow (update in the same commit as any new endpoint)
 
 ## Tech Stack
 
@@ -133,7 +134,7 @@ These come from explicit project requirements — do not compromise on them:
 6. **Input validation** — all user input must be validated and sanitized server-side before hitting the database
 7. **Minimal response data** — API routes return only what the client needs; never expose passwords, tokens, internal IDs beyond what's required
 8. **SSRF prevention** — never make server-side HTTP requests based on unvalidated user input
-9. **API inventory** — every route must be documented; no orphaned/test routes left in production
+9. **API inventory** — every route must be documented in `API.md`; no orphaned/test routes left in production
 10. **Security misconfiguration** — no debug mode in prod, no default credentials, keep dependencies updated
 
 ## Database Design Notes
