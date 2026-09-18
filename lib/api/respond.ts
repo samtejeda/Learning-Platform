@@ -33,6 +33,28 @@ function defaultMessage(code: string): string {
 }
 
 /**
+ * Defence-in-depth CSRF check for state-changing route handlers. Our
+ * session cookie is SameSite=Lax and JSON bodies already force a CORS
+ * preflight, but a request that carries an Origin/Referer from another
+ * site is rejected outright. Requests without either header (same-origin
+ * fetch in some browsers, curl) pass through to the auth check.
+ */
+export function isSameOrigin(request: Request): boolean {
+  const expected = new URL(request.url).origin;
+  const origin = request.headers.get("origin");
+  if (origin) return origin === expected;
+  const referer = request.headers.get("referer");
+  if (referer) {
+    try {
+      return new URL(referer).origin === expected;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Catch-all for route handlers. Known error types map to the right status;
  * anything else is logged server-side and returned as a generic 500.
  */
