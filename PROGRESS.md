@@ -2,7 +2,7 @@
 
 Source of truth for where this project actually stands. Read this before resuming work in a new session — trust this over assumptions in `CLAUDE.md`'s narrative sections, since code moves faster than docs.
 
-Last reconciled: 2026-09-17 (full file-by-file inventory; foundation phase plan approved by Sam and in progress).
+Last reconciled: 2026-09-18 (core CRUD — courses & lectures — complete on branch `worktree-academy-backend`, awaiting Sam's review; see "Frontend handoff" and "Manual end-to-end" below).
 
 ## Foundation phase (2026-09-17) — commit log
 - [x] 1. `proxy.ts` exported `middleware` and `runtime`; Next 16 requires a `proxy` export and forbids segment config in that file, so the auth gate never ran and `pnpm build` failed. Fixed. `drizzle/meta/` un-ignored so migrations can be versioned. `DIRECT_URL` added to `.env.local.example`.
@@ -38,11 +38,31 @@ Plan approved by Sam 2026-09-18 with the four decisions below (see "Decisions & 
 - Auth pages (`app/(auth)/*`): login (email/phone tabs), register, reset-password, update-password, on React 19 `useActionState` with shared `components/ui` primitives.
 - Authorization chain: `proxy.ts` (JWT role → prefix redirect) → route-group layouts (`requireUser`/`requireRole`) → per-page checks + `lib/data/*` queries that encode enrollment/ownership. See `CLAUDE.md` "Authorization chain".
 - First screens: `/` role router; student `/dashboard` + `/courses/[id]`; professor `/professor` + `/professor/courses/[id]` (admin sees all); `/admin` placeholder.
+- **Courses & lectures (branch `worktree-academy-backend`, 2026-09-18):** professor creates/edits courses; invites students by email (immediate enrollment if the account exists, otherwise auto-enrolled on signup by DB trigger); uploads lecture videos straight from the browser to a private bucket via server-issued signed URLs, finalizes (server verifies the object), publishes, reorders, deletes; students see only published lectures, stream via 15-min signed URLs, and completion is decided server-side from merged watched ranges bounded by wall-clock time. Minimal plain UI included; see "Frontend handoff".
 - Security headers + report-only CSP in `next.config.ts`.
-- Tooling: vitest (`pnpm test`, 30 tests), `pnpm db:generate|migrate|check`, `API.md` inventory.
+- Tooling: vitest (`pnpm test`, 56 unit tests; `pnpm test:integration`, 29 tests against the dev DB), `pnpm db:generate|migrate|check`, `API.md` inventory.
+
+- [x] 6. Docs reconcile: `API.md` complete for every route in `pnpm build` output; `CLAUDE.md` structure + data-access notes updated; frontend handoff + audit self-check below. **Branch `worktree-academy-backend` is ready for Sam's review/merge.**
 
 ## In progress
-- **Core CRUD — courses & lectures** on branch `worktree-academy-backend` (backend-builder). Commits 1–5 of 6 done (see the commit log above). Remaining: 6 docs reconcile + full audit self-check + frontend handoff section, then the branch is ready for Sam's review. Manual end-to-end (real upload → stream → watch) still needs `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`. Plan file: `~/.claude/plans/let-s-begin-with-plan-wobbly-token.md`.
+- Nothing mid-flight. `worktree-academy-backend` (6 commits) awaits review. **Blocked on Sam for the last verification step:** add `SUPABASE_SERVICE_ROLE_KEY` to `.env.local` (main checkout + worktree), then run the manual end-to-end below (real upload → stream → watch → completion). Everything else is verified by `pnpm test` (56) + `pnpm test:integration` (29) + `pnpm build`.
+
+## Frontend handoff (for the `academy-frontend` worktree)
+Read this branch before restyling: `git show worktree-academy-backend:API.md` (contracts) and `git diff main..worktree-academy-backend --stat`. Every UI piece below is deliberately plain and free to restyle/replace; the **load-bearing** parts are the field names (they match the zod schemas) and the player's server-driven behaviour.
+- `components/course-form.tsx` — fields `title`, `description`; used for course create/edit and lecture edit. Takes a bound server action.
+- `components/roster-manager.tsx` — invite form (`email`) + rows with `studentId` / `invitationId` hidden fields → `inviteStudent` / `removeStudent` / `revokeInvitation`.
+- `components/lecture-upload-form.tsx` — the 3-step upload (`createLecture` → `supabase.storage.from(bucket).uploadToSignedUrl(path, token, file)` → `finalizeLectureUpload({ durationSeconds })`). Keep the order; the server verifies the object before the lecture can be published. Has an upload-progress placeholder (Supabase's `uploadToSignedUrl` doesn't expose progress; use XHR against the signed URL if a real bar is wanted).
+- `components/lecture-list-manager.tsx` — status badge (`pending_upload` / `draft` / `published`), publish/unpublish/delete, move up/down (`reorderLectures(courseId, { orderedIds })` needs the full list), retry pending upload.
+- `components/video-player/lecture-player.tsx` — **keep:** no native controls; `GET /api/lectures/[id]/stream` for the URL (refetch on expiry/error); seeks only into `intervals` returned by the server; `POST /api/lectures/[id]/progress` with `{ from, to, position }` every ~10 s of playback and on pause/seek/end/tab-hide; segments ≤ 20 s; percent/completed displayed only from server responses. Everything visual is yours.
+- Pages: `/professor/courses/new`, `/professor/courses/[id]` (edit link, lectures, add-lecture, roster), `/professor/courses/[id]/edit`, `/professor/lectures/[id]/edit`, `/courses/[id]` (lecture links + percent), `/courses/[id]/lectures/[lectureId]`.
+- Data shapes to render: `ProfessorCourseDetail` / `StudentCourseDetail` in `lib/data/courses.ts`, `ProfessorLecture` / `StudentLecture` in `lib/data/lectures.ts`, `LectureView` / `ProgressView` in `lib/data/progress.ts`, `Roster` in `lib/data/enrollments.ts`.
+
+## Manual end-to-end (once the service-role key is in `.env.local`)
+1. `pnpm dev`. Promote a user by SQL (`update public.users set role='professor' where email='…'`), sign out/in.
+2. `/professor` → New course → invite an existing student email (roster shows Enrolled) and a brand-new email (shows Invited) → register that email → it flips to Enrolled with no professor action.
+3. Add a lecture with a short MP4 (< 50 MB on the free tier) → status Draft → Publish.
+4. As the student: `/courses/<id>` lists it with 0% → play → percent climbs in ~10 s steps → try to click ahead on the bar (snaps back) → reaches Completed at 95 %.
+5. Adversarial: `curl -b <student cookie> /api/lectures/<draft id>/stream` → 404; POST `{ "from": 0, "to": 600 }` → 400; the same 10 s segment posted repeatedly → `accepted:false`; another professor opening `/professor/courses/<id>` → 404. Plan file: `~/.claude/plans/let-s-begin-with-plan-wobbly-token.md`.
 
 ## Next up
 (Priority order per `ORCHESTRATION.md`. Each new feature area gets a plan-mode pass first.)
@@ -68,12 +88,29 @@ Plan approved by Sam 2026-09-18 with the four decisions below (see "Decisions & 
 - **Branch workflow (2026-09-18):** no one commits directly to `main` anymore — not the build agents, not Sam's own interactive sessions. Solo/sequential work checks out its own branch first (`git checkout -b <type>/<slug>`); parallel work via `-w`/worktrees branches automatically either way. Stop for Sam's review/merge, don't self-merge to `main`. This is go-forward only — the 16 commits already on `main` (2026-09-16 through 2026-09-18, orchestration setup through the foundation phase and the migrations-applied milestone) predate the rule and aren't being rewritten.
 
 ## Open questions for Sam
+- **Phone-only accounts can't be invited** — invitations match on email, and a student who registered by phone OTP alone has no email. Fine for now (self-registration is by email; phone is a sign-in method), but if phone-only accounts become a thing the roster needs a second lookup.
+- **Supabase plan** — objects are capped at 50 MB on the free tier; lecture videos will need Pro (up to 5 GB/file) before real content lands. Bucket cap is set to 2 GiB; adjust in `drizzle/0006` if you want a different ceiling.
 - **Role-change lag**: the proxy's coarse redirect reads the role from the JWT, which refreshes hourly; DB-backed checks are immediate. Acceptable, or configure Supabase's Custom Access Token Hook for instant propagation?
 - **CAPTCHA** (Cloudflare Turnstile, free) on register/OTP later — new third-party service, so flagging rather than adding.
 - Supabase dashboard settings to confirm: email confirmations on; "notify user on password change" on; Auth rate limits at defaults; min password length 8; Redirect URLs include `<site>/api/auth/callback`.
 - The `npx getdesign@latest add claude` design step runs a third-party npm package — vet before running.
 - Admin role scope is still TBD.
 - Backups: Supabase free tier has daily backups but no PITR; restore has not been tested. Decide whether that's acceptable before real student data lands.
+
+## Audit self-check (2026-09-18, core CRUD branch, after commit 6; `audit-prompts/apis-and-backend.md` re-read from disk after every chunk)
+
+**apis-and-backend.md** — 5/6 pass, 1 partial. Specific examples are the integration tests in `lib/data/*.integration.test.ts`.
+- Endpoint organization: **pass** — actions grouped per domain (`lib/courses`, `lib/enrollments`, `lib/lectures`), handlers under `/api/lectures/[id]/{stream,progress}` with GET for reads and POST for the mutation; all in `API.md`.
+- Error handling: **pass** — actions return `ActionState`/`UploadTicket` on every expected failure (storage down → "Upload is unavailable right now", row kept for retry); handlers map to 400/401/403/404/409/429/503 via `handleRouteError`; malformed JSON → 400 (tested).
+- Input validation: **pass** — zod before every DB call, including bound ids (`updateCourse("not-a-uuid")` → generic error, no query) and strict progress bodies (extra field → 400, `to − from > 20` → 400).
+- Authentication: **pass** — `assertRole`/`assertUser` first, then ownership/enrollment inside the query (`findOwnedCourse`, `getOwnedLecture`, `getLectureForViewer`); professor B on A's course → "not found" for update/invite/publish/reorder/delete; unenrolled student → 404 on course, stream, progress; all tested.
+- Response quality: **pass** — stream returns only `{ url, expiresAt }`; progress returns the student's own numbers; roster exposes name + email to the owning professor only; `UploadTicket` carries a one-time token for one path.
+- Performance: **partial** — course/lecture/roster lists unpaginated (fine at academy scale; revisit with real numbers). Progress ping = 4 statements in one transaction every ~10 s per active viewer; acceptable, but a course-level completion summary should be one aggregate query when it's built, not N lookups.
+- Top 3 to fix next: (1) paginate the professor roster/lecture lists once a course exceeds ~200 rows; (2) real upload progress bar via XHR against the signed URL; (3) enforce CSP now that the media origin is known (hardening pass).
+
+**database-and-storage.md** — File storage: now **pass** (videos in Supabase Storage, private bucket, MIME allowlist, size cap; paths server-generated). Schema/relationships/unique/indexes: pass (`course_invitations` unique `(course_id, email)` + email index; lecture order index). Backups: still open.
+
+**security-and-rls.md** — RLS on every table incl. `course_invitations`: pass. No storage policies on the bucket (deny-all; server-signed URLs only): pass. Service-role key: server-only, Storage-only, documented.
 
 ## Audit self-check (2026-09-17, after commit 11; checklists re-read from disk)
 
