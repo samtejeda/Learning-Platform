@@ -163,6 +163,7 @@ pnpm dev          # start dev server
 pnpm build        # production build
 pnpm lint         # eslint
 pnpm test         # vitest (unit tests under lib/**)
+pnpm test:integration  # lib/**/*.integration.test.ts against the DB in .env.local (seeds dev-only @example.test accounts; never point at prod)
 pnpm db:generate  # diff lib/db/schema.ts against drizzle/meta and write a new migration
 pnpm db:migrate   # apply pending migrations in drizzle/ (run before every deploy)
 pnpm db:check     # verify drizzle/ migrations + snapshots are consistent

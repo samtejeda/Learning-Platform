@@ -40,6 +40,23 @@ All take `(prev: ActionState, formData)` unless noted. "Identifier" is the secon
 | `updatePassword` | Recovery or normal session (`getCurrentUser`) | — (authenticated) | `updatePasswordSchema` | `redirect(homeForRole)` | Rejects same/weak passwords with specific copy. |
 | `signOut()` | Any | — | — | `redirect("/login")` | Invalidates the Supabase session. |
 
+## Server actions (`lib/courses/actions.ts`)
+
+| Action | Auth | Rate limit | Schema | On success | Notes |
+|---|---|---|---|---|---|
+| `createCourse(prev, fd)` | `assertRole("professor","admin")` | — | `courseFormSchema` (`title` 1–120, `description` ≤ 2000 → null if empty) | `redirect(/professor/courses/<id>)` | `professorId` is always the acting user; never taken from the form. |
+| `updateCourse(courseId, prev, fd)` | `assertRole("professor","admin")` | — | `uuidSchema` on the bound id + `courseFormSchema` | `redirect(/professor/courses/<id>)` | Bound id is untrusted: validated, then `findOwnedCourse` + ownership in the UPDATE's WHERE. Not-owned = "Course not found." (same as not-found). |
+
+## Server actions (`lib/enrollments/actions.ts`)
+
+All take a bound `courseId` (untrusted: `uuidSchema`, then `findOwnedCourse`) and return `ActionState`. Not-owned and not-found both yield "Course not found."
+
+| Action | Auth | Rate limit scope / identifier | Schema | On success | Notes |
+|---|---|---|---|---|---|
+| `inviteStudent(courseId, prev, fd)` | `assertRole("professor","admin")` + course ownership | `invite` / acting user id (40/h) + IP (60/h) | `inviteSchema` (`email`, normalised lowercase) | `{ success }` — "now enrolled" / "invited" / "already on the roster" | One transaction: existing account → `enrollments` row now + invitation marked accepted; unknown email → `course_invitations` row, activated by the `on_public_user_email_set` trigger on signup. Idempotent. |
+| `removeStudent(courseId, prev, fd)` | same | — | `removeStudentSchema` (`studentId`) | `{ success }` | Deletes the enrollment and the accepted invitation so a re-invite works. |
+| `revokeInvitation(courseId, prev, fd)` | same | — | `revokeInvitationSchema` (`invitationId`) | `{ success }` | Only pending (unaccepted) invitations of that course. |
+
 ## Pages with data access (for completeness; not APIs)
 
 Pages are gated three times: proxy prefix rule → route-group layout (`requireUser`/`requireRole`) → the page itself, plus the query. See CLAUDE.md "Authorization chain".
@@ -48,9 +65,11 @@ Pages are gated three times: proxy prefix rule → route-group layout (`requireU
 |---|---|---|
 | `/` | — | redirects by role or to `/login` |
 | `/dashboard` | any signed-in user | `listEnrolledCourses(userId)` |
-| `/courses/[courseId]` | any signed-in user | `getCourseForStudent(courseId, userId)` (enrollment; 404 otherwise) |
+| `/courses/[courseId]` | any signed-in user | `getCourseForStudent(courseId, userId)` (enrollment; 404 otherwise; **published** lectures only, with the student's own progress) |
 | `/professor` | professor, admin | `listTaughtCourses(userId)` / admin: `listAllCourses()` |
-| `/professor/courses/[courseId]` | professor, admin | `getCourseForProfessor(courseId, userId, { isAdmin })` (ownership; 404 otherwise) |
+| `/professor/courses/new` | professor, admin | — (form → `createCourse`) |
+| `/professor/courses/[courseId]` | professor, admin | `getCourseForProfessor(courseId, actor)` (ownership; 404 otherwise; all lectures with status + roster) |
+| `/professor/courses/[courseId]/edit` | professor, admin | `getCourseForProfessor` (form → `updateCourse`) |
 | `/admin` | admin | placeholder |
 
 ## Environment variables
@@ -62,8 +81,9 @@ Pages are gated three times: proxy prefix rule → route-group layout (`requireU
 | `NEXT_PUBLIC_SITE_URL` | `lib/env.ts` for email links | yes in production |
 | `DATABASE_URL` | Drizzle at runtime (transaction pooler, 6543) | yes |
 | `DIRECT_URL` | drizzle-kit only (session pooler, 5432) | for migrations |
+| `SUPABASE_SERVICE_ROLE_KEY` | `lib/storage` **only** — signed upload/stream URLs, object checks, deletes on the private `lectures` bucket | yes (lectures) |
 
-No service-role key exists in the app and none should be added; server-side data access uses the table-owner connection, and PostgREST is fully denied (see `drizzle/0002`).
+The service-role key is server-only and is used exclusively for Storage (decision 2026-09-18). It is never used for database access: all data goes through Drizzle on the table-owner connection so app-layer authorization always applies, and PostgREST is fully denied (see `drizzle/0002`). The bucket has no storage policies, so the browser can only ever act on a URL the server signed after checking ownership/enrollment.
 
 ## Migrations
 
@@ -76,3 +96,5 @@ No service-role key exists in the app and none should be added; server-side data
 | 0002 | `0002_revoke_postgrest_grants.sql` | Revoke anon/authenticated grants + default privileges |
 | 0003 | `0003_auth_user_triggers.sql` | Profile-row creation, contact sync, role → JWT claim, backfill |
 | 0004 | `0004_rate_limit_buckets.sql` | Rate limit counters table |
+| 0005 | `0005_invitations_lecture_lifecycle.sql` | `course_invitations` table; lecture `description`/`duration_seconds`/`video_uploaded_at`/`published_at`; progress `watched_intervals`/`last_position_seconds`/`completed_at` |
+| 0006 | `0006_invitation_trigger_lectures_bucket.sql` | `on_public_user_email_set` trigger (invitation → enrollment on signup); private `lectures` Storage bucket with size cap + video MIME allowlist |

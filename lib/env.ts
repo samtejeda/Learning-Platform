@@ -16,6 +16,20 @@ export function getSiteUrl(): string {
   return "http://localhost:3000";
 }
 
+/**
+ * Supabase service-role key. Server-only and used EXCLUSIVELY by
+ * lib/storage (signed URLs, object checks, deletes) — never for database
+ * queries, which go through Drizzle so app-layer authorization always
+ * applies. Must never be exposed with a NEXT_PUBLIC_ prefix.
+ */
+export function getServiceRoleKey(): string {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (!key) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY must be set (used for Storage signed URLs only)");
+  }
+  return key;
+}
+
 function stripTrailingSlash(value: string): string {
   return value.endsWith("/") ? value.slice(0, -1) : value;
 }
