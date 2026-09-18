@@ -72,10 +72,11 @@ export async function getClientIp(): Promise<string> {
 }
 
 /**
- * Convenience for auth actions: apply a scope's per-IP and per-identifier
- * limits in one call. Returns null when allowed, or a user-facing message.
+ * Apply a scope's per-IP and per-identifier limits in one call. Returns
+ * null when allowed, or a user-facing message. For authenticated scopes the
+ * identifier is the acting user's id.
  */
-export async function enforceAuthRateLimit(
+export async function enforceRateLimit(
   scope: Scope,
   identifier: string | null,
 ): Promise<string | null> {
@@ -96,3 +97,6 @@ export async function enforceAuthRateLimit(
   }
   return null;
 }
+
+/** Original name, kept for the auth actions. Same function. */
+export const enforceAuthRateLimit = enforceRateLimit;

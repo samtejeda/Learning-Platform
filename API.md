@@ -47,6 +47,16 @@ All take `(prev: ActionState, formData)` unless noted. "Identifier" is the secon
 | `createCourse(prev, fd)` | `assertRole("professor","admin")` | — | `courseFormSchema` (`title` 1–120, `description` ≤ 2000 → null if empty) | `redirect(/professor/courses/<id>)` | `professorId` is always the acting user; never taken from the form. |
 | `updateCourse(courseId, prev, fd)` | `assertRole("professor","admin")` | — | `uuidSchema` on the bound id + `courseFormSchema` | `redirect(/professor/courses/<id>)` | Bound id is untrusted: validated, then `findOwnedCourse` + ownership in the UPDATE's WHERE. Not-owned = "Course not found." (same as not-found). |
 
+## Server actions (`lib/enrollments/actions.ts`)
+
+All take a bound `courseId` (untrusted: `uuidSchema`, then `findOwnedCourse`) and return `ActionState`. Not-owned and not-found both yield "Course not found."
+
+| Action | Auth | Rate limit scope / identifier | Schema | On success | Notes |
+|---|---|---|---|---|---|
+| `inviteStudent(courseId, prev, fd)` | `assertRole("professor","admin")` + course ownership | `invite` / acting user id (40/h) + IP (60/h) | `inviteSchema` (`email`, normalised lowercase) | `{ success }` — "now enrolled" / "invited" / "already on the roster" | One transaction: existing account → `enrollments` row now + invitation marked accepted; unknown email → `course_invitations` row, activated by the `on_public_user_email_set` trigger on signup. Idempotent. |
+| `removeStudent(courseId, prev, fd)` | same | — | `removeStudentSchema` (`studentId`) | `{ success }` | Deletes the enrollment and the accepted invitation so a re-invite works. |
+| `revokeInvitation(courseId, prev, fd)` | same | — | `revokeInvitationSchema` (`invitationId`) | `{ success }` | Only pending (unaccepted) invitations of that course. |
+
 ## Pages with data access (for completeness; not APIs)
 
 Pages are gated three times: proxy prefix rule → route-group layout (`requireUser`/`requireRole`) → the page itself, plus the query. See CLAUDE.md "Authorization chain".

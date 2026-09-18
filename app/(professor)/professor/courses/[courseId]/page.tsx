@@ -3,8 +3,10 @@ import { notFound } from "next/navigation";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { getCourseForProfessor } from "@/lib/data/courses";
+import { inviteStudent, removeStudent, revokeInvitation } from "@/lib/enrollments/actions";
 import { Card } from "@/components/ui/card";
 import { buttonClassName } from "@/components/ui/button";
+import { RosterManager } from "@/components/roster-manager";
 
 const paramsSchema = z.object({ courseId: z.uuid() });
 
@@ -71,24 +73,13 @@ export default async function ProfessorCoursePage({
 
       <Card>
         <h2 className="font-semibold text-slate-900 mb-3">Students</h2>
-        {course.roster.enrolled.length === 0 && course.roster.invited.length === 0 ? (
-          <p className="text-sm text-slate-500">No students yet.</p>
-        ) : (
-          <ul className="divide-y divide-slate-100">
-            {course.roster.enrolled.map((s) => (
-              <li key={s.studentId} className="py-2.5 text-sm flex gap-3 items-center">
-                <span className="flex-1 text-slate-700">{s.name ?? s.email ?? "Student"}</span>
-                <span className="text-xs text-green-700">Enrolled</span>
-              </li>
-            ))}
-            {course.roster.invited.map((inv) => (
-              <li key={inv.id} className="py-2.5 text-sm flex gap-3 items-center">
-                <span className="flex-1 text-slate-700">{inv.email}</span>
-                <span className="text-xs text-slate-500">Invited</span>
-              </li>
-            ))}
-          </ul>
-        )}
+        {/* Bound ids are re-validated and ownership re-checked inside each action. */}
+        <RosterManager
+          roster={course.roster}
+          invite={inviteStudent.bind(null, course.id)}
+          remove={removeStudent.bind(null, course.id)}
+          revoke={revokeInvitation.bind(null, course.id)}
+        />
       </Card>
     </div>
   );
