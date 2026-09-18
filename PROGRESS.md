@@ -34,7 +34,13 @@ Migrations applied. The project had leftover schema objects from an early `db:pu
 - Tooling: vitest (`pnpm test`, 30 tests), `pnpm db:generate|migrate|check`, `API.md` inventory.
 
 ## In progress
-- Nothing mid-flight. Foundation phase code is complete and committed; **DB migrations are generated but not applied** because the Supabase project is unreachable (see "Blocked on Sam" above). First thing next session: apply migrations and run the live verification list at the bottom of this file.
+- **Core CRUD — courses & lectures**, running in two parallel worktrees (2026-09-18): `backend-builder` in `.claude/worktrees/academy-backend` (data functions, actions, `app/api/lectures/*`, storage, `API.md`) and `frontend-builder` in `.claude/worktrees/academy-frontend` (branch `worktree-academy-frontend`). Ownership split + the interface contract the frontend is coded against live in the frontend plan (`~/.claude/plans/let-s-begin-with-plan-hashed-sunbeam.md`, "Ownership split" section) — backend should implement those signatures or tell the frontend what changed.
+
+### Frontend log (branch `worktree-academy-frontend`)
+- [x] F0. Bootstrap: `DESIGN.md` (Claude system, primary) + `design/DESIGN-airtable-reference.md` (structure-only) added, byte-identical to the vetted `getdesign@0.6.25` templates; the CLI itself was never executed (see `design/README.md` for the vetting result and provenance). Sam approved 2026-09-18: DESIGN files via copy, `.env.local` copied into the worktree, `@playwright/test` as a dev dependency for 375px screenshot/keyboard checks, comprehension-question UI in scope (professor-authored content). Baseline in the worktree: lint clean, 30 tests, build OK.
+- [ ] F1. Design system foundation: tokens in `globals.css`, fonts, restyled + new `components/ui` primitives, mobile-first `AppShell` nav sheet, loading/error/not-found states, re-skin existing pages, drop scaffold assets.
+- [ ] F2. Anti-scrub video player (`components/video-player/`, `lib/video/` pure tracker + tests).
+- [ ] F3. Core CRUD screens (professor course/roster/lecture management; student dashboard progress, course sections, lecture player page) wired to the backend contract.
 
 ## Next up
 (Priority order per `ORCHESTRATION.md`. Each new feature area gets a plan-mode pass first.)
