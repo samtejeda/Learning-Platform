@@ -7,19 +7,12 @@ import { inviteStudent, removeStudent, revokeInvitation } from "@/lib/enrollment
 import { Card, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { BackLink } from "@/components/ui/back-link";
-import { Badge } from "@/components/ui/badge";
 import { buttonClassName } from "@/components/ui/button";
-import { DataList, DataRow, DataRowIndex, DataRowMain } from "@/components/ui/data-list";
 import { RosterManager } from "@/components/roster-manager";
-import { formatTime } from "@/lib/video/format-time";
+import { LectureListManager } from "@/components/lecture-list-manager";
+import { LectureUploadForm } from "@/components/lecture-upload-form";
 
 const paramsSchema = z.object({ courseId: z.uuid() });
-
-const STATUS: Record<"pending_upload" | "draft" | "published", { label: string; tone: "warning" | "outline" | "success" }> = {
-  pending_upload: { label: "Upload pending", tone: "warning" },
-  draft: { label: "Draft", tone: "outline" },
-  published: { label: "Published", tone: "success" },
-};
 
 export default async function ProfessorCoursePage({
   params,
@@ -34,6 +27,7 @@ export default async function ProfessorCoursePage({
   const course = await getCourseForProfessor(parsed.data.courseId, user);
   if (!course) notFound();
 
+  const published = course.lectures.filter((l) => l.status === "published").length;
   const enrolledCount = course.roster.enrolled.length;
   const invitedCount = course.roster.invited.length;
 
@@ -52,31 +46,23 @@ export default async function ProfessorCoursePage({
       />
 
       <Card>
-        <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="mb-3 flex items-center justify-between gap-3">
           <CardTitle>Lectures</CardTitle>
-          <span className="text-sm text-muted">{course.lectures.length}</span>
+          <span className="text-sm tabular-nums text-muted">
+            {course.lectures.length === 0
+              ? "None yet"
+              : `${published} of ${course.lectures.length} published`}
+          </span>
         </div>
-        {course.lectures.length === 0 ? (
-          <p className="text-sm text-muted">No lectures yet.</p>
-        ) : (
-          <DataList>
-            {course.lectures.map((lecture, i) => {
-              const status = STATUS[lecture.status];
-              return (
-                <DataRow key={lecture.id}>
-                  <DataRowIndex>{i + 1}</DataRowIndex>
-                  <DataRowMain
-                    title={lecture.title}
-                    meta={
-                      lecture.durationSeconds ? <span>{formatTime(lecture.durationSeconds)}</span> : undefined
-                    }
-                  />
-                  <Badge tone={status.tone}>{status.label}</Badge>
-                </DataRow>
-              );
-            })}
-          </DataList>
-        )}
+        <LectureListManager courseId={course.id} lectures={course.lectures} />
+      </Card>
+
+      <Card variant="outlined">
+        <CardTitle>Add a lecture</CardTitle>
+        <p className="mb-5 mt-1 text-sm text-muted">
+          Upload the video, then publish it when you&apos;re ready. Students only see published lectures.
+        </p>
+        <LectureUploadForm courseId={course.id} />
       </Card>
 
       <Card>

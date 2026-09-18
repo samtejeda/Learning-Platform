@@ -112,6 +112,16 @@
   }
 }
 
+/* Indeterminate progress bar (ProgressBar `indeterminate`). */
+@keyframes progress-slide {
+  0% {
+    left: -33%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
 /* Shared focus treatment (DESIGN.md text-input-focused): coral border + 3px
    coral ring at low alpha. Used via `focus:focus-ring` / `focus-visible:focus-ring`. */
 @utility focus-ring {
