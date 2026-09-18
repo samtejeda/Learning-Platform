@@ -17,7 +17,11 @@ Last reconciled: 2026-09-17 (full file-by-file inventory; foundation phase plan 
 - [x] 10. `next.config.ts`: `poweredByHeader: false`; HSTS (2y, preload), nosniff, `X-Frame-Options: DENY`, Referrer-Policy, Permissions-Policy, and a CSP in **Report-Only** mode (Next inlines scripts; enforce with nonces in the hardening phase). Verified with `curl -I` against `next start`.
 - [x] 11. `API.md` (conventions, every route handler + server action with auth/rate-limit/schema/output, env vars, migration list). `CLAUDE.md` updated. Audit self-check below.
 
-**Blocked on Sam:** the Supabase project host (`eexfdauqvymkeatjujoo.supabase.co`) does not resolve in DNS as of 2026-09-17 — paused or deleted. Migrations can be generated offline, but applying them (steps 2–4, 9) and live verification wait on restoring/recreating the project. Also `.env.local` needs: the `@` in the `DATABASE_URL` password percent-encoded as `%40`, plus `DIRECT_URL` and `NEXT_PUBLIC_SITE_URL` added.
+**Resolved 2026-09-18:** Supabase project was paused, not deleted — Sam restored it, confirmed no real data was ever in it. `.env.local` fixed (`DATABASE_URL` password percent-encoded, `DIRECT_URL` + `NEXT_PUBLIC_SITE_URL` added). Auth dashboard configured: Site URL, Redirect URLs (`/api/auth/callback`), email confirmations on, min password length 8, all 6 security notification emails enabled (password/email/phone changed, sign-in method linked/removed, MFA added/removed).
+
+Migrations applied. The project had leftover schema objects from an early `db:push` (13 base tables + enum types, matching exactly migration `0000_init`) with no row in `drizzle.__drizzle_migrations` — baselined `0000_init` as already-applied (hash-matched, per the plan in step 2 below) rather than dropping/recreating, then `0001`–`0004` applied cleanly on top. Verified: `pnpm db:migrate` (no-op on rerun), `db:check` (clean), `db:generate` (no changes, 14 tables match `schema.ts` exactly) — steps 1 and part of 2 of the live verification checklist. RLS confirmed **true** on all 14 tables; anon/authenticated grants confirmed **0 rows**; all 3 auth triggers exist. PostgREST directly verified: `GET /rest/v1/users` and `POST /rest/v1/forum_posts` with the anon key both return `401`, `code: 42501` ("permission denied") — deny-all RLS + revoked grants working as designed.
+
+**Still open from the live verification checklist:** steps 4–7 (register → confirm → dashboard flow; rate-limit/reset/OTP behavior; role-based redirect; security headers via `next start`) need the app actually running through real flows — better done by hand or by the next session than scripted here.
 
 ## Done
 - Drizzle schema (`lib/db/schema.ts`): 13 domain tables + `rate_limit_buckets`, relations, FKs with delete rules, unique indexes. RLS enabled on all. Versioned in `drizzle/` (0000–0004).
@@ -67,13 +71,13 @@ Scored honestly — items that can't be verified until the DB is reachable are m
 **auth-and-permissions.md** — 4/6 pass, 2 unverified
 - Authentication flow: **pass** — Supabase Auth (bcrypt, email confirmation on, PKCE links).
 - Authorization enforcement: **pass** — three-gate chain; every page/action/handler checks itself; data queries encode ownership.
-- Row-level security: **unverified** — deny-all RLS + revoked grants written (`0001`, `0002`), not applied. App-layer ownership checks are in every query.
+- Row-level security: **pass** (verified 2026-09-18) — deny-all RLS + revoked grants applied and confirmed live (RLS true on all 14 tables, 0 anon/authenticated grants, PostgREST returns 401/42501). App-layer ownership checks are in every query as the actual access path.
 - Session management: **pass** — Supabase sessions (1h JWT, refresh via proxy `getClaims`), `signOut` invalidates. Absolute session lifetime is a dashboard setting to confirm.
 - Password reset: **unverified** — links are single-use PKCE codes with Supabase's expiry; "notify owner on password change" is a dashboard toggle Sam must enable.
 - Protected routes: **pass** — proxy denies by default; only `/login`, `/register`, `/reset-password`, `/api/auth/*` are public. Build output lists every route; all are in `API.md`.
 
 **security-and-rls.md** — 5/7 pass, 1 unverified, 1 n/a
-- RLS on every table: **unverified** (written, not applied). Policies are intentionally none (deny-all).
+- RLS on every table: **pass** (verified 2026-09-18, live). Policies are intentionally none (deny-all).
 - Secrets: **pass** — env only; no service-role key exists; `.env.local` git-ignored.
 - HTTPS: **pass** — Vercel TLS; HSTS + `upgrade-insecure-requests` in prod CSP.
 - Input sanitization: **pass** — zod on every action; Drizzle parameterises SQL; React escapes output.
