@@ -7,14 +7,10 @@ import { inviteStudent, removeStudent, revokeInvitation } from "@/lib/enrollment
 import { Card } from "@/components/ui/card";
 import { buttonClassName } from "@/components/ui/button";
 import { RosterManager } from "@/components/roster-manager";
+import { LectureListManager } from "@/components/lecture-list-manager";
+import { LectureUploadForm } from "@/components/lecture-upload-form";
 
 const paramsSchema = z.object({ courseId: z.uuid() });
-
-const STATUS_LABEL = {
-  pending_upload: "Upload pending",
-  draft: "Draft",
-  published: "Published",
-} as const;
 
 export default async function ProfessorCoursePage({
   params,
@@ -56,19 +52,12 @@ export default async function ProfessorCoursePage({
 
       <Card>
         <h2 className="font-semibold text-slate-900 mb-3">Lectures</h2>
-        {course.lectures.length === 0 ? (
-          <p className="text-sm text-slate-500">No lectures yet.</p>
-        ) : (
-          <ol className="divide-y divide-slate-100">
-            {course.lectures.map((lecture, i) => (
-              <li key={lecture.id} className="py-2.5 text-sm text-slate-700 flex gap-3 items-center">
-                <span className="text-slate-400 w-6 shrink-0 tabular-nums">{i + 1}.</span>
-                <span className="flex-1">{lecture.title}</span>
-                <span className="text-xs text-slate-500">{STATUS_LABEL[lecture.status]}</span>
-              </li>
-            ))}
-          </ol>
-        )}
+        <LectureListManager courseId={course.id} lectures={course.lectures} />
+      </Card>
+
+      <Card>
+        <h2 className="font-semibold text-slate-900 mb-3">Add a lecture</h2>
+        <LectureUploadForm courseId={course.id} />
       </Card>
 
       <Card>

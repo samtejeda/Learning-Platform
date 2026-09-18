@@ -57,6 +57,20 @@ All take a bound `courseId` (untrusted: `uuidSchema`, then `findOwnedCourse`) an
 | `removeStudent(courseId, prev, fd)` | same | — | `removeStudentSchema` (`studentId`) | `{ success }` | Deletes the enrollment and the accepted invitation so a re-invite works. |
 | `revokeInvitation(courseId, prev, fd)` | same | — | `revokeInvitationSchema` (`invitationId`) | `{ success }` | Only pending (unaccepted) invitations of that course. |
 
+## Server actions (`lib/lectures/actions.ts`)
+
+Upload flow: **1** `createLecture` (row + one-time signed token for a *server-chosen* path) → **2** browser `supabase.storage.from(bucket).uploadToSignedUrl(path, token, file)` straight to Storage (no server hop, no Vercel body limit) → **3** `finalizeLectureUpload` (server confirms the object exists with an allowlisted content type, records duration) → **4** `publishLecture`. Every step re-validates ids and re-checks ownership via `getOwnedLecture` (joins the course's `professor_id`; admins bypass). Not-owned = not-found = "Lecture not found."
+
+| Action | Auth | Schema | Returns | Notes |
+|---|---|---|---|---|
+| `createLecture(courseId, input)` | `assertRole("professor","admin")` + `findOwnedCourse` | `createLectureSchema` (`title`, `description`, `contentType` ∈ mp4/webm/mov, `sizeBytes` ≤ 2 GiB) | `UploadTicket` `{ ok, lectureId, bucket, path, token }` or `{ ok:false, error, fieldErrors? }` | Path is `courses/<courseId>/lectures/<lectureId>/video.<ext>`, ids server-generated. Row is `pending_upload` until finalized. Storage failure leaves the row for retry. |
+| `retryLectureUpload(lectureId)` | owner | `uuidSchema` | `UploadTicket` | Only while `video_uploaded_at` is null. |
+| `finalizeLectureUpload(lectureId, input)` | owner | `finalizeLectureSchema` (`durationSeconds` 1–86400) | `ActionState` | `getObjectInfo(path)` must exist; a non-video content type at the path is removed and refused. Duration comes from the professor's browser (their own content); students never influence it. |
+| `publishLecture(lectureId)` / `unpublishLecture(lectureId)` | owner | `uuidSchema` | `ActionState` | Publish requires `video_uploaded_at` (enforced in the UPDATE's WHERE too). |
+| `updateLecture(lectureId, prev, fd)` | owner | `lectureFormSchema` | `redirect(course page)` | Title/description only. |
+| `reorderLectures(courseId, input)` | owner of course | `reorderLecturesSchema` (unique uuids, ≤ 500) | `ActionState` | The list must cover exactly the course's lectures; applied in one transaction or not at all. |
+| `deleteLecture(lectureId)` | owner | `uuidSchema` | `ActionState` | Removes the Storage object first (logged if that fails), then the row (progress cascades). |
+
 ## Pages with data access (for completeness; not APIs)
 
 Pages are gated three times: proxy prefix rule → route-group layout (`requireUser`/`requireRole`) → the page itself, plus the query. See CLAUDE.md "Authorization chain".
@@ -70,6 +84,7 @@ Pages are gated three times: proxy prefix rule → route-group layout (`requireU
 | `/professor/courses/new` | professor, admin | — (form → `createCourse`) |
 | `/professor/courses/[courseId]` | professor, admin | `getCourseForProfessor(courseId, actor)` (ownership; 404 otherwise; all lectures with status + roster) |
 | `/professor/courses/[courseId]/edit` | professor, admin | `getCourseForProfessor` (form → `updateCourse`) |
+| `/professor/lectures/[lectureId]/edit` | professor, admin | `getOwnedLecture(lectureId, actor)` (ownership via course join; form → `updateLecture`) |
 | `/admin` | admin | placeholder |
 
 ## Environment variables
