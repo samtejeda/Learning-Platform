@@ -2,7 +2,10 @@ import "server-only";
 
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { courses, enrollments, lectures, users } from "@/lib/db/schema";
+import { courses, enrollments, users } from "@/lib/db/schema";
+import type { Role } from "@/lib/auth/roles";
+import { listLecturesForProfessor, listPublishedLecturesForStudent, type ProfessorLecture, type StudentLecture } from "./lectures";
+import { listRoster, type Roster } from "./enrollments";
 
 // Every function takes the acting user's id and encodes the permission rule
 // in the query itself (enrollment join / professor ownership), so a caller
@@ -14,10 +17,19 @@ export type CourseSummary = {
   description: string | null;
 };
 
-export type CourseDetail = CourseSummary & {
+export type StudentCourseDetail = CourseSummary & {
   professorName: string | null;
-  lectures: { id: string; title: string; order: number }[];
+  lectures: StudentLecture[];
 };
+
+export type ProfessorCourseDetail = CourseSummary & {
+  professorName: string | null;
+  lectures: ProfessorLecture[];
+  roster: Roster;
+};
+
+/** The minimum identity a data function needs to decide ownership. */
+export type Actor = { id: string; role: Role };
 
 const summaryColumns = {
   id: courses.id,
@@ -35,11 +47,12 @@ export async function listEnrolledCourses(studentId: string): Promise<CourseSumm
     .orderBy(asc(courses.title));
 }
 
-/** A course the student is enrolled in, or null if not enrolled / not found. */
+/** A course the student is enrolled in, or null if not enrolled / not found.
+ * Only published lectures are included. */
 export async function getCourseForStudent(
   courseId: string,
   studentId: string,
-): Promise<CourseDetail | null> {
+): Promise<StudentCourseDetail | null> {
   const [row] = await db
     .select({ ...summaryColumns, professorName: users.fullName })
     .from(enrollments)
@@ -48,7 +61,7 @@ export async function getCourseForStudent(
     .where(and(eq(enrollments.studentId, studentId), eq(enrollments.courseId, courseId)))
     .limit(1);
   if (!row) return null;
-  return { ...row, lectures: await listLectureTitles(courseId) };
+  return { ...row, lectures: await listPublishedLecturesForStudent(courseId, studentId) };
 }
 
 /** Courses taught by the professor. */
@@ -61,25 +74,54 @@ export async function listTaughtCourses(professorId: string): Promise<CourseSumm
 }
 
 /**
+ * Ownership predicate shared by every professor-side read and write:
+ * professors match only their own courses, admins match any course.
+ */
+function ownedBy(courseId: string, actor: Actor) {
+  return actor.role === "admin"
+    ? eq(courses.id, courseId)
+    : and(eq(courses.id, courseId), eq(courses.professorId, actor.id));
+}
+
+/**
+ * The course if the actor may manage it, else null. Every mutating action
+ * calls this first (after assertRole) so a professor can't touch a course
+ * they don't own even with a valid id. Not-owned and not-found are the same
+ * answer on purpose.
+ */
+export async function findOwnedCourse(
+  courseId: string,
+  actor: Actor,
+): Promise<{ id: string; professorId: string } | null> {
+  const [row] = await db
+    .select({ id: courses.id, professorId: courses.professorId })
+    .from(courses)
+    .where(ownedBy(courseId, actor))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
  * A course for the professor view. Professors see only their own courses;
- * admins (`isAdmin`) see any course. Null if not found or not owned.
+ * admins see any course. Null if not found or not owned. Includes every
+ * lecture (any status) and the roster.
  */
 export async function getCourseForProfessor(
   courseId: string,
-  professorId: string,
-  { isAdmin = false }: { isAdmin?: boolean } = {},
-): Promise<CourseDetail | null> {
-  const ownership = isAdmin
-    ? eq(courses.id, courseId)
-    : and(eq(courses.id, courseId), eq(courses.professorId, professorId));
+  actor: Actor,
+): Promise<ProfessorCourseDetail | null> {
   const [row] = await db
     .select({ ...summaryColumns, professorName: users.fullName })
     .from(courses)
     .innerJoin(users, eq(courses.professorId, users.id))
-    .where(ownership)
+    .where(ownedBy(courseId, actor))
     .limit(1);
   if (!row) return null;
-  return { ...row, lectures: await listLectureTitles(courseId) };
+  const [lectureRows, roster] = await Promise.all([
+    listLecturesForProfessor(courseId),
+    listRoster(courseId),
+  ]);
+  return { ...row, lectures: lectureRows, roster };
 }
 
 /** All courses (admin only; caller must have checked the role). */
@@ -91,10 +133,31 @@ export async function listAllCourses(): Promise<(CourseSummary & { professorName
     .orderBy(asc(courses.title));
 }
 
-async function listLectureTitles(courseId: string) {
-  return db
-    .select({ id: lectures.id, title: lectures.title, order: lectures.order })
-    .from(lectures)
-    .where(eq(lectures.courseId, courseId))
-    .orderBy(asc(lectures.order));
+// ─── Writes ───────────────────────────────────────────────────────────────────
+
+export async function insertCourse(input: {
+  title: string;
+  description: string | null;
+  professorId: string;
+}): Promise<{ id: string }> {
+  const [row] = await db
+    .insert(courses)
+    .values(input)
+    .returning({ id: courses.id });
+  return row;
+}
+
+/** Update title/description. Ownership is part of the WHERE; returns false
+ * if nothing matched (not found or not owned). */
+export async function updateCourse(
+  courseId: string,
+  actor: Actor,
+  input: { title: string; description: string | null },
+): Promise<boolean> {
+  const rows = await db
+    .update(courses)
+    .set({ ...input, updatedAt: new Date() })
+    .where(ownedBy(courseId, actor))
+    .returning({ id: courses.id });
+  return rows.length > 0;
 }

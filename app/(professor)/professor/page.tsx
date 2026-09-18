@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireRole } from "@/lib/auth/session";
 import { listAllCourses, listTaughtCourses } from "@/lib/data/courses";
 import { Card } from "@/components/ui/card";
+import { buttonClassName } from "@/components/ui/button";
 
 export const metadata = { title: "Teaching" };
 
@@ -12,21 +13,24 @@ export default async function ProfessorDashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-slate-900">
-          {isAdmin ? "All courses" : "My courses"}
-        </h1>
-        <p className="text-sm text-slate-500 mt-1">
-          {isAdmin ? "Every course on the platform." : "Courses you teach."}
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-900">
+            {isAdmin ? "All courses" : "My courses"}
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">
+            {isAdmin ? "Every course on the platform." : "Courses you teach."}
+          </p>
+        </div>
+        <Link href="/professor/courses/new" className={buttonClassName("primary")}>
+          New course
+        </Link>
       </div>
 
       {taught.length === 0 ? (
         <Card>
           <p className="text-slate-700 font-medium">No courses yet.</p>
-          <p className="text-sm text-slate-500 mt-1">
-            Course creation is coming in the next build phase.
-          </p>
+          <p className="text-sm text-slate-500 mt-1">Create your first course to get started.</p>
         </Card>
       ) : (
         <ul className="grid gap-4 sm:grid-cols-2">

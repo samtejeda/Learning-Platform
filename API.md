@@ -40,6 +40,13 @@ All take `(prev: ActionState, formData)` unless noted. "Identifier" is the secon
 | `updatePassword` | Recovery or normal session (`getCurrentUser`) | — (authenticated) | `updatePasswordSchema` | `redirect(homeForRole)` | Rejects same/weak passwords with specific copy. |
 | `signOut()` | Any | — | — | `redirect("/login")` | Invalidates the Supabase session. |
 
+## Server actions (`lib/courses/actions.ts`)
+
+| Action | Auth | Rate limit | Schema | On success | Notes |
+|---|---|---|---|---|---|
+| `createCourse(prev, fd)` | `assertRole("professor","admin")` | — | `courseFormSchema` (`title` 1–120, `description` ≤ 2000 → null if empty) | `redirect(/professor/courses/<id>)` | `professorId` is always the acting user; never taken from the form. |
+| `updateCourse(courseId, prev, fd)` | `assertRole("professor","admin")` | — | `uuidSchema` on the bound id + `courseFormSchema` | `redirect(/professor/courses/<id>)` | Bound id is untrusted: validated, then `findOwnedCourse` + ownership in the UPDATE's WHERE. Not-owned = "Course not found." (same as not-found). |
+
 ## Pages with data access (for completeness; not APIs)
 
 Pages are gated three times: proxy prefix rule → route-group layout (`requireUser`/`requireRole`) → the page itself, plus the query. See CLAUDE.md "Authorization chain".
@@ -48,9 +55,11 @@ Pages are gated three times: proxy prefix rule → route-group layout (`requireU
 |---|---|---|
 | `/` | — | redirects by role or to `/login` |
 | `/dashboard` | any signed-in user | `listEnrolledCourses(userId)` |
-| `/courses/[courseId]` | any signed-in user | `getCourseForStudent(courseId, userId)` (enrollment; 404 otherwise) |
+| `/courses/[courseId]` | any signed-in user | `getCourseForStudent(courseId, userId)` (enrollment; 404 otherwise; **published** lectures only, with the student's own progress) |
 | `/professor` | professor, admin | `listTaughtCourses(userId)` / admin: `listAllCourses()` |
-| `/professor/courses/[courseId]` | professor, admin | `getCourseForProfessor(courseId, userId, { isAdmin })` (ownership; 404 otherwise) |
+| `/professor/courses/new` | professor, admin | — (form → `createCourse`) |
+| `/professor/courses/[courseId]` | professor, admin | `getCourseForProfessor(courseId, actor)` (ownership; 404 otherwise; all lectures with status + roster) |
+| `/professor/courses/[courseId]/edit` | professor, admin | `getCourseForProfessor` (form → `updateCourse`) |
 | `/admin` | admin | placeholder |
 
 ## Environment variables
