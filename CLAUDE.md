@@ -34,7 +34,7 @@ This project is being built with a multi-agent, minimal-check-in workflow. See:
 
 - **Student** — watches lectures, submits assignments, takes exams, posts in forums
 - **Professor** — creates all course content, grades assignments and exams, views student progress
-- **Admin** — platform-level management (scope TBD)
+- **Admin** — manages professors and students platform-wide, through the app itself, not the database. Exact feature set TBD, but the requirement is fixed: this app is meant to be sold or donated as an independent, self-hosted template for other institutions, each running their own deployment with no ongoing support from Sam — so admin must be real in-app tooling (role management, account oversight) before any redistribution, not a permanent "ask a developer to run SQL" situation. For Sam's own church deployment, SQL-based role promotion during build-out is fine and isn't blocking other work — see `PROGRESS.md`.
 
 All role checks happen **server-side only**. Never trust the client for permission decisions.
 
