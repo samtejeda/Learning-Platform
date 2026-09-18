@@ -39,7 +39,7 @@ Migrations applied. The project had leftover schema objects from an early `db:pu
 ## Next up
 (Priority order per `ORCHESTRATION.md`. Each new feature area gets a plan-mode pass first.)
 1. **Apply + verify the foundation** once Supabase is back: `pnpm db:migrate` (baseline first if the old schema exists), then the live verification list below. Add `NEXT_PUBLIC_SITE_URL`, `DIRECT_URL`, fix `DATABASE_URL` encoding, and add the callback URL in the Supabase dashboard.
-2. **Core CRUD — courses & lectures** (`backend-builder` + `frontend-builder`): professor creates/edits courses, enrolls students (by email; decide invite flow), uploads lectures to a **private** Supabase Storage bucket (bucket policy: no public reads; server issues short-lived signed URLs), orders lectures. Student course page shows sections only when content exists. Includes the anti-scrub video player, `POST /api/lectures/[id]/progress` (server-validated ≥ threshold), and `GET /api/lectures/[id]/stream` (signed URL, enrollment-checked). Add each to `API.md`.
+2. **Core CRUD — courses & lectures** (`backend-builder` + `frontend-builder`): professor creates/edits courses, enrolls students by email (professor enters a student's email on their course page; creates an `enrollments` row tied to that email — works whether the student has an account yet or not, activates on their next signup/login; professor owns their own roster, no join codes or open self-enrollment), uploads lectures to a **private** Supabase Storage bucket (bucket policy: no public reads; server issues short-lived signed URLs), orders lectures. Student course page shows sections only when content exists. Includes the anti-scrub video player, `POST /api/lectures/[id]/progress` (server-validated ≥ threshold), and `GET /api/lectures/[id]/stream` (signed URL, enrollment-checked). Add each to `API.md`.
 3. **Exams** (builder UI, publish gate, submissions, manual grading; `reference_answer` never sent to students).
 4. **Assignments** (private bucket for uploads, grading).
 5. **Forum** (course-level posts, lecture-anchored posts, replies). Consider Realtime → would need the first real RLS policy.
@@ -50,13 +50,14 @@ Migrations applied. The project had leftover schema objects from an early `db:pu
 
 ## Decisions & assumptions
 - This deployment is for a Bible academy, but the codebase, naming, and schema stay generic/institution-agnostic so it can be reused as a template later — see "Current deployment context" in `CLAUDE.md`. Confirmed by Sam 2026-09-16.
+- **Enrollment flow (2026-09-18):** professor invites students to a course by email — no join codes, no open self-enrollment. Professor owns their own roster; fits a small known cohort and the minors consideration.
+- **Self-registration (2026-09-18):** stays open (any email or phone can create an account) — enrollment, not account creation, is the real access gate. Professors are still promoted to their role by SQL until admin tooling exists. Revisit before real launch if this ever needs tightening.
+- **Supabase project (resolved 2026-09-18):** was paused, not deleted; restored, confirmed no real data ever existed in it. See the Foundation phase log above.
 - The 13 `audit-prompts/*.md` files are pass/fail audit checklists, **not build instructions** (confirmed by Sam 2026-09-16). Build agents pull actual work items from this file's "Next up" and from `CLAUDE.md`, build them, then score their own work against the relevant checklist(s) before committing.
 - Audit checklists must be **re-read from the file and re-run regularly**, not read once and relied on from memory — each build agent's definition says to re-read its file(s) fresh before every self-check, and to re-run the full checklist after every chunk of work in its domain, not just the first time it touches that domain.
 - Build agents (`.claude/agents/*.md`) are active as of 2026-09-16 — all 13 audit-prompt files now have real content.
 
 ## Open questions for Sam
-- **Supabase project** — restore the paused project or create a new one? Did the old DB hold anything worth keeping (decides the migration baseline path in step 2 of the commit log)?
-- **Production self-registration** given minors: open (as now), invite-only, or admin-provisioned? Dev keeps open registration. Related: professors are promoted by SQL until admin tooling exists.
 - **Role-change lag**: the proxy's coarse redirect reads the role from the JWT, which refreshes hourly; DB-backed checks are immediate. Acceptable, or configure Supabase's Custom Access Token Hook for instant propagation?
 - **CAPTCHA** (Cloudflare Turnstile, free) on register/OTP later — new third-party service, so flagging rather than adding.
 - Supabase dashboard settings to confirm: email confirmations on; "notify user on password change" on; Auth rate limits at defaults; min password length 8; Redirect URLs include `<site>/api/auth/callback`.
