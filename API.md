@@ -62,8 +62,9 @@ Pages are gated three times: proxy prefix rule → route-group layout (`requireU
 | `NEXT_PUBLIC_SITE_URL` | `lib/env.ts` for email links | yes in production |
 | `DATABASE_URL` | Drizzle at runtime (transaction pooler, 6543) | yes |
 | `DIRECT_URL` | drizzle-kit only (session pooler, 5432) | for migrations |
+| `SUPABASE_SERVICE_ROLE_KEY` | `lib/storage` **only** — signed upload/stream URLs, object checks, deletes on the private `lectures` bucket | yes (lectures) |
 
-No service-role key exists in the app and none should be added; server-side data access uses the table-owner connection, and PostgREST is fully denied (see `drizzle/0002`).
+The service-role key is server-only and is used exclusively for Storage (decision 2026-09-18). It is never used for database access: all data goes through Drizzle on the table-owner connection so app-layer authorization always applies, and PostgREST is fully denied (see `drizzle/0002`). The bucket has no storage policies, so the browser can only ever act on a URL the server signed after checking ownership/enrollment.
 
 ## Migrations
 
@@ -76,3 +77,5 @@ No service-role key exists in the app and none should be added; server-side data
 | 0002 | `0002_revoke_postgrest_grants.sql` | Revoke anon/authenticated grants + default privileges |
 | 0003 | `0003_auth_user_triggers.sql` | Profile-row creation, contact sync, role → JWT claim, backfill |
 | 0004 | `0004_rate_limit_buckets.sql` | Rate limit counters table |
+| 0005 | `0005_invitations_lecture_lifecycle.sql` | `course_invitations` table; lecture `description`/`duration_seconds`/`video_uploaded_at`/`published_at`; progress `watched_intervals`/`last_position_seconds`/`completed_at` |
+| 0006 | `0006_invitation_trigger_lectures_bucket.sql` | `on_public_user_email_set` trigger (invitation → enrollment on signup); private `lectures` Storage bucket with size cap + video MIME allowlist |
