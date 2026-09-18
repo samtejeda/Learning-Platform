@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { fileURLToPath } from "node:url";
 
 const isDev = process.env.NODE_ENV !== "production";
 
@@ -43,6 +44,9 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Pin the workspace root to this directory. Without it Next walks up looking
+  // for lockfiles and, in a git worktree, can pick a parent directory.
+  turbopack: { root: fileURLToPath(new URL(".", import.meta.url)) },
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },

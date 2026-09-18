@@ -1,9 +1,11 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { getCourseForProfessor } from "@/lib/data/courses";
-import { Card } from "@/components/ui/card";
+import { Card, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
+import { BackLink } from "@/components/ui/back-link";
+import { DataList, DataRow, DataRowIndex, DataRowMain } from "@/components/ui/data-list";
 
 const paramsSchema = z.object({ courseId: z.uuid() });
 
@@ -23,31 +25,27 @@ export default async function ProfessorCoursePage({
   if (!course) notFound();
 
   return (
-    <div className="space-y-6">
-      <div>
-        <Link href="/professor" className="text-sm text-slate-500 hover:text-slate-900">
-          ← My courses
-        </Link>
-        <h1 className="text-2xl font-semibold text-slate-900 mt-2">{course.title}</h1>
-        {course.professorName && (
-          <p className="text-sm text-slate-500 mt-1">Taught by {course.professorName}</p>
-        )}
-        {course.description && <p className="text-slate-700 mt-3">{course.description}</p>}
-      </div>
+    <div className="space-y-6 sm:space-y-8">
+      <PageHeader
+        back={<BackLink href="/professor">Teaching</BackLink>}
+        title={course.title}
+        eyebrow={course.professorName ? `Taught by ${course.professorName}` : undefined}
+        lead={course.description}
+      />
 
       <Card>
-        <h2 className="font-semibold text-slate-900 mb-3">Lectures</h2>
+        <CardTitle className="mb-2">Lectures</CardTitle>
         {course.lectures.length === 0 ? (
-          <p className="text-sm text-slate-500">No lectures yet.</p>
+          <p className="text-sm text-muted">No lectures yet.</p>
         ) : (
-          <ol className="divide-y divide-slate-100">
+          <DataList>
             {course.lectures.map((lecture, i) => (
-              <li key={lecture.id} className="py-2.5 text-sm text-slate-700 flex gap-3">
-                <span className="text-slate-400 w-6 shrink-0 tabular-nums">{i + 1}.</span>
-                <span>{lecture.title}</span>
-              </li>
+              <DataRow key={lecture.id}>
+                <DataRowIndex>{i + 1}</DataRowIndex>
+                <DataRowMain title={lecture.title} />
+              </DataRow>
             ))}
-          </ol>
+          </DataList>
         )}
       </Card>
     </div>

@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { updatePassword } from "@/lib/auth/actions";
 import type { ActionState } from "@/lib/validation/form";
-import { Card } from "@/components/ui/card";
+import { AuthCard } from "@/components/auth-card";
 import { Field } from "@/components/ui/field";
 import { Alert } from "@/components/ui/alert";
 import { SubmitButton } from "@/components/ui/submit-button";
@@ -17,10 +17,7 @@ export default function UpdatePasswordPage() {
   const [state, action] = useActionState<ActionState, FormData>(updatePassword, null);
 
   return (
-    <Card>
-      <h1 className="text-2xl font-semibold text-slate-900 mb-1">Choose a new password</h1>
-      <p className="text-sm text-slate-500 mb-6">You&apos;ll be signed in once it&apos;s saved.</p>
-
+    <AuthCard title="Choose a new password" lead="You'll be signed in once it's saved.">
       <form action={action} className="space-y-4" noValidate>
         {state?.error && <Alert tone="error">{state.error}</Alert>}
         <Field
@@ -45,6 +42,6 @@ export default function UpdatePasswordPage() {
         />
         <SubmitButton pendingLabel="Saving…">Save password</SubmitButton>
       </form>
-    </Card>
+    </AuthCard>
   );
 }
