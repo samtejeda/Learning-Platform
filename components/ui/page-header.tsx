@@ -20,7 +20,9 @@ export function PageHeader({ title, eyebrow, lead, actions, back }: Props) {
         <div className="min-w-0">
           {eyebrow && <p className="mb-1 text-sm font-medium text-muted">{eyebrow}</p>}
           <h1 className="text-[2rem] leading-[1.1] sm:text-4xl">{title}</h1>
-          {lead && <p className="mt-2 max-w-prose text-[15px] text-muted">{lead}</p>}
+          {lead && (
+            <p className="mt-2 max-w-prose whitespace-pre-line text-[15px] text-muted">{lead}</p>
+          )}
         </div>
         {actions && (
           <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">{actions}</div>

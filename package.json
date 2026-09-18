@@ -16,7 +16,10 @@
     "db:studio": "dotenv -e .env.local -- drizzle-kit studio",
     "screenshots": "node scripts/screenshots.mjs",
     "tab-order": "node scripts/tab-order.mjs",
-    "form-check": "node scripts/form-check.mjs"
+    "form-check": "node scripts/form-check.mjs",
+    "auth-session": "node scripts/auth-session.mjs",
+    "flow-core-crud": "node scripts/flow-core-crud.mjs",
+    "db-query": "dotenv -e .env.local -- node scripts/db-query.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.3",

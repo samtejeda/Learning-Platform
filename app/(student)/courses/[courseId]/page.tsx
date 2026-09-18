@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { BackLink } from "@/components/ui/back-link";
 import { Badge } from "@/components/ui/badge";
 import { ProgressBar } from "@/components/ui/progress-bar";
+import { EmptyState } from "@/components/ui/empty-state";
 import { DataList, DataRowIndex } from "@/components/ui/data-list";
 import { formatTime } from "@/lib/video/format-time";
 
@@ -40,7 +41,14 @@ export default async function StudentCoursePage({
         lead={course.description}
       />
 
-      {/* Sections render only when they have content (CLAUDE.md). */}
+      {/* Sections render only when they have content (CLAUDE.md). When the
+          course has no content at all, say so instead of showing a blank page. */}
+      {total === 0 && (
+        <EmptyState
+          title="Nothing here yet."
+          description="Your professor hasn't published any lectures for this course. Check back soon."
+        />
+      )}
       {total > 0 && (
         <Card>
           <div className="mb-4 space-y-3">

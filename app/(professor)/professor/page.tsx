@@ -27,7 +27,8 @@ export default async function ProfessorDashboardPage() {
       <PageHeader
         title={isAdmin ? "All courses" : "Teaching"}
         lead={isAdmin ? "Every course on the platform." : "Courses you teach."}
-        actions={newCourse}
+        // When there are no courses the empty state carries the only CTA.
+        actions={taught.length > 0 ? newCourse : undefined}
       />
 
       {taught.length === 0 ? (
