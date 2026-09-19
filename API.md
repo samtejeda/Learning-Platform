@@ -67,7 +67,7 @@ No service-role key exists in the app and none should be added; server-side data
 
 ## Migrations
 
-`drizzle/` is the versioned history. Workflow: edit `lib/db/schema.ts` → `pnpm db:generate` → review → commit → `pnpm db:migrate` (run before every deploy; CI step is platform-ops work). Custom SQL (grants, triggers): `pnpm exec dotenv -e .env.local -- drizzle-kit generate --custom --name=<slug>`.
+`drizzle/` is the versioned history. Workflow: edit `lib/db/schema.ts` → `pnpm db:generate` → review → commit → `pnpm db:migrate` (production deploys run it automatically: `vercel.json` → `pnpm build:vercel` → `scripts/vercel-build.sh`, Production scope only; a failed migration fails the build and the previous deployment stays live. CI runs `pnpm db:check` on every PR). Custom SQL (grants, triggers): `pnpm exec dotenv -e .env.local -- drizzle-kit generate --custom --name=<slug>`.
 
 | # | File | What |
 |---|---|---|
