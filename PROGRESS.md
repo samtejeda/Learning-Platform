@@ -2,7 +2,7 @@
 
 Source of truth for where this project actually stands. Read this before resuming work in a new session — trust this over assumptions in `CLAUDE.md`'s narrative sections, since code moves faster than docs.
 
-Last reconciled: 2026-09-17 (full file-by-file inventory; foundation phase plan approved by Sam and in progress).
+Last reconciled: 2026-09-18 (foundation phase complete; CI + Vercel config added on `chore/ci-and-vercel`, PR #1).
 
 ## Foundation phase (2026-09-17) — commit log
 - [x] 1. `proxy.ts` exported `middleware` and `runtime`; Next 16 requires a `proxy` export and forbids segment config in that file, so the auth gate never ran and `pnpm build` failed. Fixed. `drizzle/meta/` un-ignored so migrations can be versioned. `DIRECT_URL` added to `.env.local.example`.
@@ -22,6 +22,19 @@ Last reconciled: 2026-09-17 (full file-by-file inventory; foundation phase plan 
 Migrations applied. The project had leftover schema objects from an early `db:push` (13 base tables + enum types, matching exactly migration `0000_init`) with no row in `drizzle.__drizzle_migrations` — baselined `0000_init` as already-applied (hash-matched, per the plan in step 2 below) rather than dropping/recreating, then `0001`–`0004` applied cleanly on top. Verified: `pnpm db:migrate` (no-op on rerun), `db:check` (clean), `db:generate` (no changes, 14 tables match `schema.ts` exactly) — steps 1 and part of 2 of the live verification checklist. RLS confirmed **true** on all 14 tables; anon/authenticated grants confirmed **0 rows**; all 3 auth triggers exist. PostgREST directly verified: `GET /rest/v1/users` and `POST /rest/v1/forum_posts` with the anon key both return `401`, `code: 42501` ("permission denied") — deny-all RLS + revoked grants working as designed.
 
 **Still open from the live verification checklist:** steps 4–7 (register → confirm → dashboard flow; rate-limit/reset/OTP behavior; role-based redirect; security headers via `next start`) need the app actually running through real flows — better done by hand or by the next session than scripted here.
+
+## Platform ops: CI + Vercel config (2026-09-18) — branch `chore/ci-and-vercel`, PR #1 (awaiting Sam's merge)
+- [x] 1. Toolchain pinned: `packageManager: pnpm@11.0.8`, `engines.node: 24.x`, `.nvmrc`, `pnpm typecheck`.
+- [x] 2. `.github/workflows/ci.yml`: one `checks` job on every PR and push to `main` — lint, typecheck, unit tests, `db:check`, `build`. Placeholder env only (build evaluates `lib/db/index.ts`, which throws without `DATABASE_URL`, but nothing connects at build time), no secrets. Shallow clone. **Verified green on GitHub** (run on PR #1). Integration tests deliberately excluded (need a real DB). `.github/dependabot.yml`: weekly, grouped npm + Actions updates.
+- [x] 3. `vercel.json` + `scripts/vercel-build.sh` (`pnpm build:vercel`): production builds run `drizzle-kit migrate` then `next build`; previews skip migrations; fails fast without `DIRECT_URL`. Region `iad1` (Supabase pooler is us-east-1). Verified locally: preview path skips + builds; production path without `DIRECT_URL` exits 1. The production path with a real `DIRECT_URL` was not run locally on purpose.
+- [x] 4. GitHub settings applied: `main` protected (required check `checks`, up-to-date branch required, PR required, 0 approvals, admins may bypass, no force-push/deletion); delete-branch-on-merge on.
+
+### Sam: Vercel setup checklist (I can't do this part: it needs your login)
+1. vercel.com → Add New → Project → import `samtejeda/Learning-Platform`. Framework (Next.js) and build/install commands come from `vercel.json`. Production branch: `main`.
+2. Environment variables. **Production:** `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SITE_URL` (real `https://` origin; use the `*.vercel.app` URL until a domain exists, then redeploy), `DATABASE_URL` (transaction pooler, 6543, percent-encoded), `DIRECT_URL` (session pooler, 5432, **Production scope only**). **Preview:** the same four *except* `DIRECT_URL`. See the scope notes in `.env.local.example`.
+3. Supabase → Auth → URL Configuration: set Site URL and add `<origin>/api/auth/callback` to Redirect URLs (and a wildcard for preview URLs if you want auth to work on previews).
+4. First deploy, then check: `curl -I https://<origin>/login` shows the security headers and no `x-powered-by`; open a throwaway PR and confirm a preview URL appears; run **Instant Rollback** once (Deployments → an earlier deploy → Instant Rollback, then promote the latest again) so "rollback tested" is real.
+5. Billing: Vercel → Settings → Billing/Spend alerts, and Supabase → usage alerts.
 
 ## Done
 - Drizzle schema (`lib/db/schema.ts`): 13 domain tables + `rate_limit_buckets`, relations, FKs with delete rules, unique indexes. RLS enabled on all. Versioned in `drizzle/` (0000–0004).
@@ -43,7 +56,7 @@ Migrations applied. The project had leftover schema objects from an early `db:pu
 3. **Exams** (builder UI, publish gate, submissions, manual grading; `reference_answer` never sent to students).
 4. **Assignments** (private bucket for uploads, grading).
 5. **Forum** (course-level posts, lecture-anchored posts, replies). Consider Realtime → would need the first real RLS policy.
-6. **Hardening pass**: enforce CSP with nonces; Playwright e2e for auth + role gating; CI runs `lint`, `test`, `build`, `db:check`; `db:migrate` step in deploy.
+6. **Hardening pass**: enforce CSP with nonces; Playwright e2e for auth + role gating. (CI running `lint`/`test`/`build`/`db:check` and the production `db:migrate` deploy step are done: see "Platform ops" above; only the Vercel dashboard setup is left.)
 7. **Design pass** once `DESIGN.md` exists (vet `npx getdesign` first) — UI is deliberately plain until then.
 8. **Profile: attach/verify a phone** on an existing account (needed now that OTP can't create accounts): `updateUser({ phone })` + `verifyOtp({ type: "phone_change" })`.
 9. **Admin scope** — needs Sam's definition; today roles are changed by SQL.
@@ -58,12 +71,17 @@ Migrations applied. The project had leftover schema objects from an early `db:pu
 - **`npx getdesign` vetted (2026-09-18):** safe to run. Real GitHub repo (`VoltAgent/awesome-design-md`), 5 months old, ~12.5k downloads/month, zero dependencies. Read the actual 323-line source: only file ops are copying a bundled local template into the project; only network call is a single disableable (`GETDESIGN_DISABLE_TELEMETRY=1`) download-count ping that can't fail the install. No exec/spawn/eval anywhere.
 - **Admin scope (2026-09-18):** reframed, not just deferred. Since this codebase will eventually be sold or donated as an independent, self-hosted template — not a SaaS Sam operates for other institutions — admin needs to become real in-app tooling (manage professor/student roles and accounts without database access) before any redistribution happens. For Sam's own church instance, SQL-based role promotion staying manual during build-out is fine and not being reprioritized ahead of Core CRUD. Each future deployment is independent/single-tenant (own domain, own Supabase project, no shared multi-tenancy) — no tenant-isolation work needed, just eventual self-service admin tooling and, later, setup documentation for a fresh deployment.
 - **Backups (2026-09-18):** restore mechanism tested and confirmed working — `npx supabase db dump --db-url "$DIRECT_URL" -f backup.sql`, restored into a throwaway local Postgres container, all 15 tables came back with correct columns/types/defaults/FKs/indexes and RLS enabled. This validates a manual backup/restore procedure independent of Supabase's own opaque automated daily backups (free tier, no PITR, still untested on Supabase's side). Worth a recurring automated version of this dump eventually (`resilience-builder`'s domain) — not urgent with an empty DB.
+- **CI and deploy (2026-09-18, Sam):** Vercel is not set up yet. Migrations run in the Vercel build command for **Production only** (a failed migration fails the deploy, so the old version stays live; previews can never migrate). Branch protection on `main` requires the `checks` job and a PR. Migrations are forward-only: a Vercel rollback reverts code, not schema, so migrations must stay backward-compatible with the previous deploy.
 - The 13 `audit-prompts/*.md` files are pass/fail audit checklists, **not build instructions** (confirmed by Sam 2026-09-16). Build agents pull actual work items from this file's "Next up" and from `CLAUDE.md`, build them, then score their own work against the relevant checklist(s) before committing.
 - Audit checklists must be **re-read from the file and re-run regularly**, not read once and relied on from memory — each build agent's definition says to re-read its file(s) fresh before every self-check, and to re-run the full checklist after every chunk of work in its domain, not just the first time it touches that domain.
 - Build agents (`.claude/agents/*.md`) are active as of 2026-09-16 — all 13 audit-prompt files now have real content.
 - **Branch workflow (2026-09-18):** no one commits directly to `main` anymore — not the build agents, not Sam's own interactive sessions. Solo/sequential work checks out its own branch first (`git checkout -b <type>/<slug>`); parallel work via `-w`/worktrees branches automatically either way. Stop for Sam's review/merge, don't self-merge to `main`. This is go-forward only — the 16 commits already on `main` (2026-09-16 through 2026-09-18, orchestration setup through the foundation phase and the migrations-applied milestone) predate the rule and aren't being rewritten.
 
 ## Open questions for Sam
+- **Vercel plan**: I believe the free Hobby plan is limited to non-commercial use. Confirm whether a church academy qualifies, or plan for Pro (a paid service, so your call). Also check plan limits on function duration before the lecture stream/upload routes land.
+- **Preview database**: there is only one Supabase project today, so a preview deploy pointed at it shares the real DB. Fine while it holds no real data; before launch, create a separate dev project for Preview scope (or leave Preview env unset so previews only build).
+- **`node_modules/` in git history**: the initial commit (`2e62aeac`) committed it, so the pack is ~105 MiB. It's not tracked on `main` now, and CI uses a shallow clone. Removing it means rewriting history and force-pushing (every worktree/branch would need re-basing), so I didn't do it. Worth doing before the repo is sold or donated as a template; not urgent.
+- **`pool max: 10`** in `lib/db/index.ts` is per serverless instance. Under load, many concurrent Vercel instances × 10 could hit the Supabase pooler's client limit. Consider `max: 1–3` in production (backend's file, so flagging rather than editing).
 - **Role-change lag**: the proxy's coarse redirect reads the role from the JWT, which refreshes hourly; DB-backed checks are immediate. Acceptable, or configure Supabase's Custom Access Token Hook for instant propagation?
 - **CAPTCHA** (Cloudflare Turnstile, free) on register/OTP later — new third-party service, so flagging rather than adding.
 - Supabase dashboard settings to confirm: email confirmations on; "notify user on password change" on; Auth rate limits at defaults; min password length 8; Redirect URLs include `<site>/api/auth/callback`.
@@ -112,6 +130,34 @@ Scored honestly — items that can't be verified until the DB is reachable are m
 - 429 handling: **pass** — limiter returns a wait time and human copy; no retry loops needed for form submits.
 - API key management: **pass** — env-scoped; separate Supabase projects per env is the Vercel-env convention to follow.
 - Usage monitoring / cost per feature: **open** — no logging/metrics stack yet (resilience phase).
+
+## Platform-ops audit self-check (2026-09-18, after the CI/Vercel branch; the three checklists re-read from disk)
+
+**cicd-and-version-control.md** — 4/6 pass, 2 open
+- Commit hygiene: **pass** — recent commits touch 1–9 files with descriptive messages; this branch is 3 small commits. (The initial commit was a large dump that included `node_modules/`; history isn't being rewritten.)
+- Branch strategy: **pass** — PR #1 from `chore/ci-and-vercel`; `main` protected. (Pre-2026-09-18 direct commits predate the rule.)
+- Automated checks: **pass** — `checks` job green on GitHub (lint, typecheck, 30 tests, `db:check`, build).
+- Deployment pipeline: **open** — config is ready, Vercel project not created yet (Sam's checklist).
+- Security: **pass** — scanned all history for Supabase/Twilio/JWT/Postgres-URL patterns: no credentials (only comments mentioning `service_role`). Caveat: pattern scan, not a guarantee; and the `node_modules` commit is a hygiene issue, not a secret one.
+- Recovery readiness: **open** — `git revert` via PR works but hasn't been exercised; Vercel Instant Rollback untested until the project exists.
+
+**hosting-and-deployment.md** — 1/6 verified, 5 blocked on the Vercel project
+- Environment variables: **partial** — nothing hardcoded (verified), `.env.local.example` documents scopes; the values aren't in Vercel yet.
+- SSL/HTTPS: **unverified** — no live site. HSTS and `upgrade-insecure-requests` are configured.
+- Build process: **pass** — passes with no `.env.local`; only extra step (migrate) is production-only.
+- Domain: **open** — no domain chosen.
+- Deployment pipeline: **open** — same as above; previews come with the Vercel GitHub integration.
+- Rollback readiness: **open** — untested, see above.
+
+**cloud-and-compute.md** — 2/6 pass, 2 partial, 1 n/a, 1 open
+- Cost efficiency: **pass** at current scope — nothing runs more than needed; the proxy's JWT check is a local verification.
+- Resource sizing: **pass** — platform defaults are ample for academy scale (unmeasured in production).
+- Serverless configuration: **partial** — region pinned to `iad1`; timeouts/memory left at defaults until the stream/upload routes exist.
+- Data transfer: **n/a for now** — no video yet; design routes video through Supabase Storage signed URLs, not the compute layer.
+- Scaling readiness: **partial** — first to break at 10x is DB connections (`max: 10` per instance, see open questions) and Supabase free-tier limits; the Postgres-backed rate limiter adds a write per auth request.
+- Billing visibility: **open** — dashboard alerts for Sam (Vercel, Supabase, Twilio).
+
+**Top 3 to close next:** (1) Sam creates the Vercel project from the checklist, (2) run Instant Rollback once, (3) billing alerts.
 
 ## Live verification checklist (run once the DB is reachable)
 1. `pnpm db:migrate` twice (second is a no-op); `pnpm db:check`; `pnpm db:generate` says no changes.
