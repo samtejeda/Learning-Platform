@@ -75,7 +75,7 @@ Plan approved by Sam 2026-09-18 with the four decisions below (see "Decisions & 
 
 ## Open questions for Sam
 - **Frontend: test sessions.** To screenshot/tab the signed-in screens at 375px the frontend worktree needs a confirmed test student and a test professor (roles set by SQL). Options: Sam creates two accounts via `/register` + confirmation email and shares the emails (passwords entered locally only), or temporarily turns off email confirmation for a test project. Until then those screens are marked unverified in the audit.
-- **Frontend: primary button contrast.** DESIGN.md's button is white on coral `#cc785c` (3.3:1 — fails WCAG AA for 14px text, passes the 3:1 UI-component threshold). Options: (1) keep as spec'd; (2) switch the fill to `primary-active` `#a9583e` (5.1:1) and use coral only for hover/cards; (3) keep coral fill, ink text (5.8:1). Currently (1).
+- ~~**Frontend: primary button contrast.**~~ **Decided by Sam (2026-09-19): option (1), keep as spec'd** — white on coral `#cc785c` (3.3:1), matching `DESIGN.md` exactly. This is already the current implementation; no code change needed.
 - **Role-change lag**: the proxy's coarse redirect reads the role from the JWT, which refreshes hourly; DB-backed checks are immediate. Acceptable, or configure Supabase's Custom Access Token Hook for instant propagation?
 - **CAPTCHA** (Cloudflare Turnstile, free) on register/OTP later — new third-party service, so flagging rather than adding.
 - Supabase dashboard settings to confirm: email confirmations on; "notify user on password change" on; Auth rate limits at defaults; min password length 8; Redirect URLs include `<site>/api/auth/callback`.
