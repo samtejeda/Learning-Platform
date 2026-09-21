@@ -18,13 +18,14 @@ Every server entry point in the app, in one place. **Rule: a new route handler o
 4. Returns only what the caller needs (explicit column selects and DTOs; no `select *`, no passwords/tokens/`reference_answer`).
 5. Uses generic user-facing errors that don't reveal whether an account exists.
 
-Proxy (`proxy.ts`) allows `/api/auth/*` through without a session; every other `/api/*` path requires one before the handler runs, and the handler checks again.
+Proxy (`proxy.ts`) allows `/api/auth/*` and `/api/health` through without a session; every other `/api/*` path requires one before the handler runs, and the handler checks again.
 
 ## Route handlers
 
 | Method + path | Auth | Rate limit | Input | Output | Notes |
 |---|---|---|---|---|---|
 | `GET /api/auth/callback` | Public | Supabase's own (code is single-use) | `?code`, `?next` (sanitised by `safeNextPath`) | 302 to `next`, or `/login?error=link` | Exchanges PKCE code for a session cookie. Used by sign-up confirmation and password-reset emails. Never echoes the code. |
+| `GET /api/health` | Public (uptime monitors have no session) | None needed: probe results are cached ~10s per instance, so dependency load is bounded regardless of callers | none | `200 {status:"ok"}` or `503 {status:"degraded", checks:{database, auth}}` (values `ok`/`fail`) | Checks Postgres (`select 1`) and Supabase Auth's health endpoint, 3s timeout each. URL comes from env, never request input. No versions, timings, hosts or error text. `Cache-Control: no-store`. Twilio has no direct probe (only reachable via Supabase Auth). |
 
 ## Server actions (`lib/auth/actions.ts`)
 

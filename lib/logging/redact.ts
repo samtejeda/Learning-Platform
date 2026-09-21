@@ -34,6 +34,8 @@ export type SerializedError = {
   code?: string | number;
   status?: number;
   stack?: string;
+  /** One level of `error.cause`: Drizzle wraps driver errors, hiding e.g. ECONNREFUSED. */
+  cause?: { name: string; message: string; code?: string | number };
 };
 
 /** Safe, bounded representation of anything that was thrown. */
@@ -47,6 +49,13 @@ export function serializeError(err: unknown): SerializedError {
     if (typeof withMeta.status === "number") out.status = withMeta.status;
     if (err.stack) {
       out.stack = scrubString(err.stack.split("\n").slice(0, STACK_LINES).join("\n"));
+    }
+    if (err.cause instanceof Error) {
+      const inner = err.cause as Error & { code?: unknown };
+      out.cause = { name: inner.name, message: scrubString(inner.message) };
+      if (typeof inner.code === "string" || typeof inner.code === "number") {
+        out.cause.code = inner.code;
+      }
     }
     return out;
   }

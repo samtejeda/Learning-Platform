@@ -73,6 +73,16 @@ describe("serializeError", () => {
     expect(s.stack!.split("\n").length).toBeLessThanOrEqual(8);
   });
 
+  it("surfaces one scrubbed level of cause (driver error under a wrapper)", () => {
+    const inner = Object.assign(new Error("connect ECONNREFUSED for kid@example.com"), { code: "ECONNREFUSED" });
+    const s = serializeError(new Error("Failed query: select 1", { cause: inner }));
+    expect(s.cause).toEqual({
+      name: "Error",
+      message: "connect ECONNREFUSED for [email]",
+      code: "ECONNREFUSED",
+    });
+  });
+
   it("handles non-Error throws", () => {
     expect(serializeError("boom +14015551234").message).toBe("boom [phone]");
     expect(serializeError({ a: 1 }).message).toBe('{"a":1}');
