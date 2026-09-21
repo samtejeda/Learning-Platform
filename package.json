@@ -19,7 +19,8 @@
     "form-check": "node scripts/form-check.mjs",
     "auth-session": "node scripts/auth-session.mjs",
     "flow-core-crud": "node scripts/flow-core-crud.mjs",
-    "db-query": "dotenv -e .env.local -- node scripts/db-query.mjs"
+    "db-query": "dotenv -e .env.local -- node scripts/db-query.mjs",
+    "flow-lecture": "node scripts/flow-lecture.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.3",

@@ -1,115 +1,130 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import {
-  applyTimeUpdate,
-  clampSeek,
-  frontier as frontierOf,
-  intervalsFromWatchedSeconds,
-  isSeekAllowed,
-  totalWatched,
-  type Interval,
-} from "@/lib/video/watch-tracker";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import type { ProgressView } from "@/lib/data/progress";
+import { canSeek } from "@/lib/video/segments";
 import { formatTime } from "@/lib/video/format-time";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { useStreamUrl } from "./use-stream-url";
+import { ProgressBar } from "@/components/ui/progress-bar";
+import { CompletionBanner } from "./completion-banner";
 import { useLectureProgress } from "./use-lecture-progress";
+import { useStreamUrl } from "./use-stream-url";
 
 type Props = {
   lectureId: string;
   title: string;
-  /** From the server's lecture_progress row. */
-  initialWatchedSeconds: number;
-  initialCompleted: boolean;
-  /** Fires once when the server first marks the lecture complete. */
-  onCompleted?: () => void;
+  /** The server's duration (the denominator for completion); null if unknown. */
+  durationSeconds: number | null;
+  /** False for an instructor preview: no progress is recorded, seeking is free. */
+  tracksProgress: boolean;
+  initialProgress: ProgressView;
+  /** Shown in the completion banner. */
+  next?: { href: string; title: string } | null;
 };
 
 const SKIP_SECONDS = 10;
+const SEEK_DENIED = "You can't skip ahead yet — keep watching to unlock the rest.";
+const MAX_MEDIA_RETRIES = 2;
 
 /**
- * Custom HTML5 player with no native controls. Anti-scrub rules (client
- * side; the server re-validates every ping):
- *   - forward seeks past the watched frontier snap back
+ * Custom HTML5 player with no native controls. Client-side rules (the
+ * server re-validates every ping and is the only authority on completion):
+ *   - forward seeks into unwatched video snap back until the lecture is
+ *     complete (then everything unlocks for rewatching)
  *   - playback rate is pinned to 1×
- *   - once the server says "completed", seeking is unlocked for rewatching
+ *   - what counts as "watched", the percentage and completion are shown
+ *     exactly as the server reports them
  */
-export function VideoPlayer({ lectureId, title, initialWatchedSeconds, initialCompleted, onCompleted }: Props) {
+export function VideoPlayer({ lectureId, title, durationSeconds, tracksProgress, initialProgress, next }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
 
-  const intervals = useRef<Interval[]>(intervalsFromWatchedSeconds(initialWatchedSeconds));
-  const lastTime = useRef(0);
+  const lastTime = useRef(initialProgress.lastPositionSeconds);
   const resumedRef = useRef(false);
+  const pendingResume = useRef<{ time: number; play: boolean } | null>(null);
+  const mediaRetries = useRef(0);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [isPlaying, setIsPlaying] = useState(false);
-  const [current, setCurrent] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [frontier, setFrontier] = useState(initialWatchedSeconds);
+  const [current, setCurrent] = useState(initialProgress.lastPositionSeconds);
+  const [duration, setDuration] = useState(durationSeconds ?? 0);
   const [muted, setMuted] = useState(false);
   const [buffering, setBuffering] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [mediaError, setMediaError] = useState<string | null>(null);
 
   const stream = useStreamUrl(lectureId);
-
-  const getSnapshot = useCallback(() => {
-    const v = videoRef.current;
-    if (!v || !(v.duration > 0)) return null;
-    return { position: v.currentTime, watchedSeconds: totalWatched(intervals.current), duration: v.duration };
-  }, []);
-
-  const progress = useLectureProgress({ lectureId, initialCompleted, getSnapshot, onCompleted });
-  const unlocked = progress.completed;
+  const progress = useLectureProgress({ lectureId, tracksProgress, initial: initialProgress });
+  const unlocked = !tracksProgress || progress.completed;
 
   const showNotice = useCallback((text: string) => {
     setNotice(text);
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
-    noticeTimer.current = setTimeout(() => setNotice(null), 2500);
+    noticeTimer.current = setTimeout(() => setNotice(null), 2800);
   }, []);
 
-  // ── media event handlers ────────────────────────────────────────────────
+  useEffect(
+    () => () => {
+      if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    },
+    [],
+  );
+
+  const setTime = (v: HTMLVideoElement, t: number) => {
+    // Update our reference point first so the resulting `seeking` event
+    // reads as "not a forward jump".
+    lastTime.current = t;
+    v.currentTime = t;
+    setCurrent(t);
+  };
+
+  // ── media events ────────────────────────────────────────────────────────
   const onLoadedMetadata = () => {
     const v = videoRef.current!;
-    setDuration(v.duration);
-    // Resume at the frontier on first load; on a URL refresh keep position.
+    if (Number.isFinite(v.duration) && v.duration > 0) setDuration(v.duration);
+
+    // A refreshed URL: put the playhead back where it was.
+    const pending = pendingResume.current;
+    if (pending) {
+      pendingResume.current = null;
+      setTime(v, pending.time);
+      if (pending.play) v.play().catch(() => {});
+      return;
+    }
+
+    // First load: resume where the server says the student left off.
     if (!resumedRef.current) {
       resumedRef.current = true;
-      if (!unlocked && initialWatchedSeconds > 0 && initialWatchedSeconds < v.duration) {
-        v.currentTime = initialWatchedSeconds;
-        lastTime.current = initialWatchedSeconds;
-      }
-    } else if (pendingResume.current != null) {
-      v.currentTime = pendingResume.current;
-      lastTime.current = pendingResume.current;
-      pendingResume.current = null;
+      let t = initialProgress.lastPositionSeconds;
+      if (initialProgress.completed && t > v.duration - 3) t = 0; // finished before: start over
+      if (t > 0 && t < v.duration - 1) setTime(v, t);
     }
   };
 
   const onTimeUpdate = () => {
     const v = videoRef.current!;
+    if (v.seeking) return;
     const t = v.currentTime;
-    if (!v.paused && !v.seeking) {
-      intervals.current = applyTimeUpdate(intervals.current, lastTime.current, t);
-      const f = frontierOf(intervals.current);
-      if (f !== frontier) setFrontier(f);
-    }
     lastTime.current = t;
     setCurrent(t);
+    progress.onTimeUpdate(t);
   };
 
   const onSeeking = () => {
     const v = videoRef.current!;
-    if (unlocked) return;
-    const f = frontierOf(intervals.current);
-    if (!isSeekAllowed(v.currentTime, f)) {
-      v.currentTime = clampSeek(v.currentTime, f);
-      showNotice("You can't skip ahead yet — keep watching to unlock the rest.");
+    const target = v.currentTime;
+    const previous = lastTime.current;
+    if (!canSeek({ target, previousTime: previous, intervals: progress.intervals, unlocked })) {
+      v.currentTime = previous; // snap back
+      showNotice(SEEK_DENIED);
+      return;
     }
-    lastTime.current = v.currentTime;
+    progress.onSeek(previous, target, !v.paused);
+    lastTime.current = target;
+    setCurrent(target);
   };
 
   const onRateChange = () => {
@@ -119,24 +134,33 @@ export function VideoPlayer({ lectureId, title, initialWatchedSeconds, initialCo
 
   const onPlay = () => {
     setIsPlaying(true);
-    progress.setPlaying(true);
+    progress.onPlay(videoRef.current!.currentTime);
   };
   const onPause = () => {
     setIsPlaying(false);
-    progress.setPlaying(false);
-    progress.flush("pause");
+    progress.onPause(videoRef.current!.currentTime);
   };
   const onEnded = () => {
     setIsPlaying(false);
-    progress.setPlaying(false);
-    progress.flush("ended");
+    progress.onEnded(videoRef.current!.currentTime);
   };
 
-  // Signed URL expired mid-session → fetch a fresh one and resume in place.
-  const pendingResume = useRef<number | null>(null);
+  // An expired signed URL fails the next range request: fetch a fresh one
+  // and resume in place. Capped so a genuinely undecodable file can't loop.
   const onError = () => {
     const v = videoRef.current;
-    if (v && v.currentTime > 0) pendingResume.current = v.currentTime;
+    if (mediaRetries.current >= MAX_MEDIA_RETRIES) {
+      setMediaError("This video couldn't be played. Try again later, or tell your professor.");
+      return;
+    }
+    mediaRetries.current += 1;
+    pendingResume.current = { time: v?.currentTime ?? lastTime.current, play: v ? !v.paused : false };
+    stream.refresh();
+  };
+
+  const retryLoad = () => {
+    mediaRetries.current = 0;
+    setMediaError(null);
     stream.refresh();
   };
 
@@ -144,9 +168,18 @@ export function VideoPlayer({ lectureId, title, initialWatchedSeconds, initialCo
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
-    if (v.paused) v.play().catch(() => {});
-    else v.pause();
-  }, []);
+    if (!v.paused) {
+      v.pause();
+      return;
+    }
+    // About to expire? Get a fresh URL first; playback resumes on load.
+    if (stream.status === "ready" && Date.now() > stream.expiresAt - 30_000) {
+      pendingResume.current = { time: v.currentTime, play: true };
+      stream.refresh();
+      return;
+    }
+    v.play().catch(() => {});
+  }, [stream]);
 
   const toggleMute = () => {
     const v = videoRef.current;
@@ -155,23 +188,12 @@ export function VideoPlayer({ lectureId, title, initialWatchedSeconds, initialCo
     setMuted(v.muted);
   };
 
-  const seekTo = useCallback(
-    (target: number) => {
-      const v = videoRef.current;
-      if (!v || !(v.duration > 0)) return;
-      const clamped = Math.max(0, Math.min(v.duration, target));
-      const f = frontierOf(intervals.current);
-      if (!unlocked && !isSeekAllowed(clamped, f)) {
-        v.currentTime = f;
-        showNotice("You can't skip ahead yet — keep watching to unlock the rest.");
-      } else {
-        v.currentTime = clamped;
-      }
-      lastTime.current = v.currentTime;
-      setCurrent(v.currentTime);
-    },
-    [unlocked, showNotice],
-  );
+  const seekTo = (target: number) => {
+    const v = videoRef.current;
+    if (!v || !(v.duration > 0)) return;
+    // `onSeeking` enforces the rules; this only clamps to the media range.
+    v.currentTime = Math.max(0, Math.min(v.duration, target));
+  };
 
   const toggleFullscreen = () => {
     const el = wrapperRef.current;
@@ -190,16 +212,14 @@ export function VideoPlayer({ lectureId, title, initialWatchedSeconds, initialCo
     const el = trackRef.current;
     if (!el || !(duration > 0)) return;
     const rect = el.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    seekTo(ratio * duration);
+    seekTo(Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) * duration);
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLElement;
-    const onButton = target.tagName === "BUTTON";
+    const onButton = (e.target as HTMLElement).tagName === "BUTTON";
     switch (e.key) {
       case " ":
-        if (onButton) return; // let the button handle its own activation
+        if (onButton) return; // let the focused button handle its own activation
         e.preventDefault();
         togglePlay();
         break;
@@ -230,27 +250,24 @@ export function VideoPlayer({ lectureId, title, initialWatchedSeconds, initialCo
     }
   };
 
-  const playedPct = duration > 0 ? (current / duration) * 100 : 0;
-  const watchedPct = duration > 0 ? Math.min(100, (frontier / duration) * 100) : 0;
+  const playedPct = duration > 0 ? Math.min(100, (current / duration) * 100) : 0;
   const controlBtn =
     "inline-flex size-11 shrink-0 items-center justify-center rounded-md text-on-dark hover:bg-surface-dark-elevated focus-visible:focus-ring";
-
-  const streamError = stream.status === "error" ? stream.message : null;
-  const valueText = useMemo(() => `${formatTime(current)} of ${formatTime(duration)}`, [current, duration]);
+  const loadError = stream.status === "error" ? stream.message : mediaError;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <div
         ref={wrapperRef}
         onKeyDown={onKeyDown}
-        className={`group relative overflow-hidden bg-surface-dark text-on-dark ${
+        role="region"
+        aria-label={`Video player: ${title}`}
+        className={`relative overflow-hidden bg-surface-dark text-on-dark ${
           fullscreen ? "flex h-full w-full flex-col justify-center" : "-mx-4 sm:mx-0 sm:rounded-lg"
         }`}
-        aria-label={`Video player: ${title}`}
-        role="region"
       >
         <div className="relative aspect-video w-full bg-black">
-          {stream.url && (
+          {stream.url && !mediaError && (
             <video
               ref={videoRef}
               src={stream.url}
@@ -270,31 +287,36 @@ export function VideoPlayer({ lectureId, title, initialWatchedSeconds, initialCo
               onEnded={onEnded}
               onWaiting={() => setBuffering(true)}
               onPlaying={() => setBuffering(false)}
-              onCanPlay={() => setBuffering(false)}
+              onCanPlay={() => {
+                setBuffering(false);
+                mediaRetries.current = 0;
+              }}
               onError={onError}
               onClick={togglePlay}
             />
           )}
 
-          {/* Centre state: loading / error / big play */}
           {stream.status === "loading" && (
             <div className="absolute inset-0 flex items-center justify-center text-sm text-on-dark-soft" aria-live="polite">
               Loading video…
             </div>
           )}
-          {streamError && (
+          {loadError && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
-              <p className="text-sm text-on-dark-soft">{streamError}</p>
-              <Button variant="secondary" size="sm" onClick={() => stream.refresh()}>
+              <p className="text-sm text-on-dark-soft">{loadError}</p>
+              <Button variant="secondary" size="sm" onClick={retryLoad}>
                 Try again
               </Button>
             </div>
           )}
-          {stream.url && !isPlaying && !streamError && (
+          {stream.url && !isPlaying && !loadError && (
             <button
               type="button"
               onClick={togglePlay}
-              aria-label={current > 0 ? "Resume" : "Play"}
+              // The control bar's Play is the keyboard/screen-reader path;
+              // this large target is for touch and mouse.
+              tabIndex={-1}
+              aria-label={duration > 0 && current >= duration - 1 ? "Replay" : current > 0 ? "Resume" : "Play"}
               className="absolute inset-0 m-auto flex size-16 items-center justify-center rounded-full bg-primary text-on-primary shadow-sheet hover:bg-primary-active focus-visible:focus-ring"
             >
               <PlayIcon className="size-7 translate-x-0.5" />
@@ -309,14 +331,13 @@ export function VideoPlayer({ lectureId, title, initialWatchedSeconds, initialCo
           {notice && (
             <div
               role="status"
-              className="absolute inset-x-4 bottom-20 mx-auto max-w-sm rounded-md bg-surface-dark-elevated/95 px-3.5 py-2 text-center text-sm text-on-dark"
+              className="absolute inset-x-4 bottom-4 mx-auto max-w-sm rounded-md bg-surface-dark-elevated/95 px-3.5 py-2 text-center text-sm text-on-dark"
             >
               {notice}
             </div>
           )}
         </div>
 
-        {/* Controls */}
         <div className="space-y-1 px-2 pb-2 pt-1 sm:px-3">
           <div
             ref={trackRef}
@@ -326,14 +347,21 @@ export function VideoPlayer({ lectureId, title, initialWatchedSeconds, initialCo
             aria-valuemin={0}
             aria-valuemax={Math.floor(duration)}
             aria-valuenow={Math.floor(current)}
-            aria-valuetext={valueText}
+            aria-valuetext={`${formatTime(current)} of ${formatTime(duration)}`}
             onPointerDown={onTrackPointer}
             className="relative h-6 cursor-pointer touch-none rounded-sm focus-visible:focus-ring"
           >
             <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-pill bg-on-dark/20">
-              {/* watched frontier */}
-              <div className="absolute inset-y-0 left-0 rounded-pill bg-on-dark/35" style={{ width: `${watchedPct}%` }} />
-              {/* played */}
+              {/* Ranges the SERVER has accepted as watched. */}
+              {tracksProgress &&
+                duration > 0 &&
+                progress.intervals.map(([s, e]) => (
+                  <div
+                    key={`${s}-${e}`}
+                    className="absolute inset-y-0 rounded-pill bg-on-dark/35"
+                    style={{ left: `${(s / duration) * 100}%`, width: `${((e - s) / duration) * 100}%` }}
+                  />
+                ))}
               <div className="absolute inset-y-0 left-0 rounded-pill bg-primary" style={{ width: `${playedPct}%` }} />
             </div>
             <div
@@ -357,11 +385,6 @@ export function VideoPlayer({ lectureId, title, initialWatchedSeconds, initialCo
               {formatTime(current)} <span className="text-on-dark/40">/</span> {formatTime(duration)}
             </span>
             <span className="flex-1" />
-            {unlocked && (
-              <span className="hidden text-xs text-on-dark-soft sm:inline" title="You've completed this lecture; you can now skip freely.">
-                Completed
-              </span>
-            )}
             <button
               type="button"
               onClick={toggleFullscreen}
@@ -375,6 +398,17 @@ export function VideoPlayer({ lectureId, title, initialWatchedSeconds, initialCo
       </div>
 
       {progress.syncError && <Alert tone="warning">{progress.syncError}</Alert>}
+
+      {tracksProgress &&
+        (progress.completed ? (
+          <CompletionBanner next={next} />
+        ) : (
+          <ProgressBar
+            value={progress.percent}
+            label="Lecture progress"
+            caption={`${progress.percent}% watched`}
+          />
+        ))}
     </div>
   );
 }
@@ -399,7 +433,9 @@ function BackIcon({ className }: { className?: string }) {
     <svg aria-hidden viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="1.75">
       <path d="M12 5a7 7 0 1 1-6.3 4" />
       <path d="M5 4v5h5" />
-      <text x="8.6" y="15.5" fontSize="6.5" fontWeight="600" fill="currentColor" stroke="none">10</text>
+      <text x="8.6" y="15.5" fontSize="6.5" fontWeight="600" fill="currentColor" stroke="none">
+        10
+      </text>
     </svg>
   );
 }

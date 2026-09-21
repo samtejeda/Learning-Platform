@@ -100,6 +100,14 @@ export function LectureListManager({ courseId, lectures }: { courseId: string; l
                 <Link href={`/professor/lectures/${lecture.id}/edit`} className={buttonClassName("ghost", false, "sm")}>
                   Edit
                 </Link>
+                {lecture.status !== "pending_upload" && (
+                  <Link
+                    href={`/courses/${courseId}/lectures/${lecture.id}`}
+                    className={buttonClassName("ghost", false, "sm")}
+                  >
+                    Preview
+                  </Link>
+                )}
                 {lecture.status === "pending_upload" && (
                   <Button
                     variant="secondary"

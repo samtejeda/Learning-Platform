@@ -2,26 +2,27 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-// Contract (backend-builder): GET /api/lectures/[id]/stream
-//   200 → { url: string, expiresAt: string (ISO) }   enrollment-checked, short TTL
-//   401/403/404 → { error: { code, message } }
+// Contract: GET /api/lectures/[id]/stream   (API.md)
+//   200 → { url, expiresAt (ISO) }   15-minute signed URL, Cache-Control: no-store
+//   404 (not enrolled / unpublished / unknown), 429, 503 storage_unavailable
+//
+// The URL is fetched once and re-fetched only on demand (`refresh()`): when
+// playback starts and the URL is about to expire, or when the <video> errors
+// (an expired URL fails the next range request). It is deliberately NOT
+// swapped on a timer — changing <video src> mid-lecture would restart the
+// video at 0:00.
 
 type State =
   | { status: "loading"; url: null }
   | { status: "ready"; url: string; expiresAt: number }
   | { status: "error"; url: null; message: string };
 
-const REFRESH_LEAD_MS = 60_000;
-const MIN_REFRESH_WAIT_MS = 5_000;
+const MESSAGES: Record<number, string> = {
+  404: "This video isn't available.",
+  429: "Too many requests. Please wait a moment and try again.",
+  503: "Video is unavailable right now. Please try again.",
+};
 
-/**
- * Fetches a signed playback URL for the lecture and refreshes it shortly
- * before it expires (and on demand when the <video> reports an error).
- *
- * `version` drives the effect: bumping it re-runs the fetch. The expiry
- * timer and `refresh()` both just bump it, so all fetching lives in one
- * effect with proper cancellation.
- */
 export function useStreamUrl(lectureId: string) {
   const [state, setState] = useState<State>({ status: "loading", url: null });
   const [version, setVersion] = useState(0);
@@ -30,7 +31,6 @@ export function useStreamUrl(lectureId: string) {
 
   useEffect(() => {
     let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
 
     fetch(`/api/lectures/${encodeURIComponent(lectureId)}/stream`, {
       method: "GET",
@@ -40,20 +40,16 @@ export function useStreamUrl(lectureId: string) {
       .then(async (res) => {
         if (cancelled) return;
         if (!res.ok) {
-          const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
           setState({
             status: "error",
             url: null,
-            message: body?.error?.message ?? "We couldn't load this video.",
+            message: MESSAGES[res.status] ?? "We couldn't load this video.",
           });
           return;
         }
         const data = (await res.json()) as { url: string; expiresAt: string };
         if (cancelled) return;
-        const expiresAt = Date.parse(data.expiresAt);
-        setState({ status: "ready", url: data.url, expiresAt });
-        const wait = Math.max(MIN_REFRESH_WAIT_MS, expiresAt - Date.now() - REFRESH_LEAD_MS);
-        timer = setTimeout(() => setVersion((v) => v + 1), wait);
+        setState({ status: "ready", url: data.url, expiresAt: Date.parse(data.expiresAt) });
       })
       .catch(() => {
         if (cancelled) return;
@@ -66,7 +62,6 @@ export function useStreamUrl(lectureId: string) {
 
     return () => {
       cancelled = true;
-      if (timer) clearTimeout(timer);
     };
   }, [lectureId, version]);
 
