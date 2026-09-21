@@ -44,6 +44,55 @@ Plan: `~/.claude/plans/pasted-content-id-5c12-rate-limiting-quizzical-waterfall.
   - **Verified in a real browser:** headless Chrome (driven over the DevTools protocol) loaded `/login`, the lazy SDK started, and an uncaught error containing an email + phone reached the mock ingest as ONE event: message `… [email] [phone]`, URL without query, no headers/cookies/user/hostname, `infer_ip: never`, source-map debug IDs present. This closes the earlier "client capture not exercised in a real browser" gap (the error-boundary path via `reportClientError` is still only unit-covered).
   - **Trade-off, stated plainly:** browser errors thrown in the first moments after load (before the idle-time start, at most ~4 s) are not captured; server errors and boundary-caught errors are unaffected. The server-only alternative (drop the browser SDK entirely) is available if Sam prefers zero client weight.
   - **Perf follow-up (not mine to fix, frontend owns layout/fonts):** CLS **0.138** on `/login` in the lazy/no-Sentry runs (over the 0.1 "good" line; absent in the one eager run, so partly timing-dependent). Likely the font swap. Re-measure after the frontend branch's fonts land.
+- [x] 6. `docs/RUNBOOK.md`: systems map, one-time setup checklist (Sentry, UptimeRobot, backup key/secrets, billing alerts), log-event catalogue, failure scenarios (site down, DB down or paused, Auth/SMS down, user locked out by the rate limiter, attack, leaked secret, backup stopped), rollback with the expand-then-contract migration rule, full recovery into a new Supabase project, quarterly restore drill, scaling notes. Commands are marked **(exercised)** or **(untested)**. `DB_POOL_MAX` added to `API.md` and `.env.local.example`.
+
+## Resilience audit self-check (2026-09-21; all five `audit-prompts/*.md` re-read from disk first)
+
+Scored honestly. **Pending** = built and verified as far as I can from here, but needs Sam's account/secret or a real deploy before it counts. Pending items are NOT counted as passes.
+
+**error-tracking-and-logs.md: 3 pass / 3 pending Sam**
+- Error tracking integration: **pending** (end to end verified against a local mock on a prod build, server + real Chrome; no DSN exists yet, so nothing is captured in production).
+- Error boundaries: **pass** (`app/error.tsx`, `app/global-error.tsx`; builds; **not exercised** by forcing a render error in a browser; per-group boundaries come from the frontend branch).
+- Logging quality: **pass** (single-line JSON `ts/level/event/userId/err`; all `console.*` replaced; ESLint warns on new ones).
+- Alerting: **pending Sam** (Sentry alert rules + UptimeRobot are dashboard config, listed in runbook §1). Until then nobody is notified.
+- Source maps: **pending Sam** (debug IDs injected, maps deleted from build and none public; the upload itself needs `SENTRY_AUTH_TOKEN`).
+- Sensitive data: **pass** (redaction + scrubbing unit-tested and mutation-tested; real-SDK test; real-Chrome test shows a scrubbed event with no user/headers/query/IP). Residual: Vercel's own request logs are outside our control and may record the path of `/api/auth/callback?code=…` (single-use code).
+- Top 3: (1) create Sentry project, set 4 env vars, add alert rules (Sam); (2) UptimeRobot monitor (Sam); (3) exercise a boundary in a browser and add `reportClientError` to the frontend's `ErrorState` after merge.
+
+**availability-and-recovery.md: 3 pass / 1 partial / 2 pending Sam**
+- Uptime monitoring: **pending Sam** (endpoint ready, monitor not created).
+- Health checks: **pass** (`/api/health`, verified live: 200 healthy, 503 with `database:"fail"` when pointed at a dead DB; timeouts + 10s cache). Blind spots: Twilio, Storage, Sentry.
+- Database backups (automated, off-site): **pending Sam** (workflow + scripts verified locally end to end; needs merge to `main`, the age key, 2 GitHub settings, and one manual run).
+- Backup testing: **pass** (restored twice into a Supabase-flavoured Postgres, including the decrypted artifact; mutation-tested). Caveat: not into a *real* fresh Supabase project (runbook drill).
+- Deployment rollback: **partial** (Vercel capability + documented + migration rule; untested: nothing deployed to try it on).
+- Recovery documentation: **pass** (`docs/RUNBOOK.md`).
+- Top 3: (1) set up backup key + secrets and run the workflow once (Sam); (2) UptimeRobot (Sam); (3) real-project restore drill, a rollback rehearsal on the first deploy, and a decision on backing up Storage videos.
+
+**load-balancing-and-scaling.md: 2 pass / 2 platform-managed (unverified until deployed) / 1 partial / 1 deliberate fail**
+- Load balancing, auto-scaling: **platform-managed, unverifiable** (Vercel; nothing to configure, nothing deployed to observe).
+- Health checks: **partial** (Vercel routes around unhealthy instances itself and does not consult app endpoints; ours feeds monitoring, not routing).
+- Session management: **pass** (stateless Supabase JWT cookies; no server-side session store).
+- Database connections: **pass** (transaction pooler, per-instance pool 5, timeouts, misconfiguration warning; verified locally; **not load-tested**).
+- Read replicas: **fail, deliberate** (not needed at this scale; trigger documented in runbook §6).
+- Top 3: (1) first real deploy, then verify the platform items and `x-vercel-cache`; (2) load-test the pool assumption before real traffic; (3) Supabase pooler/compute alerts.
+
+**caching-and-cdn.md: 4 pass / 1 partial / 1 pending deploy / 1 deliberate fail**
+- Image optimization: **pass, vacuous** (avif/webp configured; the app has no images yet; `no-img-element` lint rule enforced).
+- CDN configuration: **pending deploy** (headers verified locally; CDN indicators such as `x-vercel-cache` need a real deployment).
+- Cache headers: **pass** (verified with curl: hashed assets `immutable, 1y`; public files 1d + SWR; signed-in routes `private, no-store`).
+- Dynamic content caching: **fail, deliberate** (per-user permission-scoped queries; strategy and revisit trigger documented in step 4).
+- Performance metrics: **pass** (measured, mobile Lighthouse, production `/login` only: **92-93**, **LCP 2.4-2.6 s**, TBT 20-30 ms, CLS 0.138; single simulated runs). **Authenticated pages not measured** (no session available).
+- Font loading: **partial** (`next/font`, self-hosted, `display: swap`; on `main` `globals.css` sets `font-family: Arial`, so the loaded Geist may be unused; the frontend branch replaces both. CLS 0.138 may be font-related: re-measure after merge).
+- Code splitting: **pass** (route-level via App Router; the Sentry SDK is its own lazy 49 KiB chunk; the video player is route-scoped on the frontend branch, not measured here).
+- Top 3: (1) fix/verify CLS on `/login` after the frontend merge; (2) measure signed-in pages (dashboard, lecture) with a session, and trim flagged unused JS (28-58 KiB); (3) verify CDN behaviour on the first deploy.
+
+**rate-limiting.md: unchanged by this pass (carried over, 3/7 pass, 4 open)**; rate limiting itself was done earlier. New since: `auth.rate_limited` / `auth.sign_in_failed` log events give a trend signal for abuse (partial credit toward usage monitoring, but no cost dashboard exists). Still open and needing Sam: billing alerts on Twilio/Supabase/Vercel/Sentry (runbook §1), and per-feature cost estimates.
+
+### Blocked on Sam / decisions (consolidated)
+1. **Merge order** (recommended: backend, frontend, platform-ops, then this branch), then I merge `main` in, resolve trivial conflicts (`next.config.ts`, `package.json`, lockfile, `API.md`, `PROGRESS.md`, `.env.local.example`, `lib/rate-limit/index.ts`), sweep `console.*` from code that arrived from other branches, and add `reportClientError` to the frontend's `ErrorState`.
+2. Sentry account/DSN/alerts; UptimeRobot monitor; backup key + 2 GitHub settings + first manual run; billing alerts. All in `docs/RUNBOOK.md` §1 and §5.4.
+3. **Decision: back up lecture videos?** Storage objects are not in the DB dump (size/cost call).
+4. **Decision (optional): keep the lazy browser Sentry SDK** (my choice; ~49 KiB after idle, small blind spot right after load) or go server-only (zero client weight, no browser-error visibility).
 
 ## Done
 - Drizzle schema (`lib/db/schema.ts`): 13 domain tables + `rate_limit_buckets`, relations, FKs with delete rules, unique indexes. RLS enabled on all. Versioned in `drizzle/` (0000–0004).
@@ -53,6 +102,7 @@ Plan: `~/.claude/plans/pasted-content-id-5c12-rate-limiting-quizzical-waterfall.
 - Authorization chain: `proxy.ts` (JWT role → prefix redirect) → route-group layouts (`requireUser`/`requireRole`) → per-page checks + `lib/data/*` queries that encode enrollment/ownership. See `CLAUDE.md` "Authorization chain".
 - First screens: `/` role router; student `/dashboard` + `/courses/[id]`; professor `/professor` + `/professor/courses/[id]` (admin sees all); `/admin` placeholder.
 - Security headers + report-only CSP in `next.config.ts`.
+- Resilience safety nets (branch `worktree-academy-resilience`, see the log above): structured redacting logger, `GET /api/health`, Sentry (lazy browser SDK, scrubbed, no-op without a DSN), DB pool tuning, cache headers, encrypted nightly backups + restore test, `docs/RUNBOOK.md`. Several are inert until Sam completes the setup checklist in the runbook.
 - Tooling: vitest (`pnpm test`, 30 tests), `pnpm db:generate|migrate|check`, `API.md` inventory.
 
 ## In progress
@@ -91,7 +141,7 @@ Plan: `~/.claude/plans/pasted-content-id-5c12-rate-limiting-quizzical-waterfall.
 - Supabase dashboard settings to confirm: email confirmations on; "notify user on password change" on; Auth rate limits at defaults; min password length 8; Redirect URLs include `<site>/api/auth/callback`.
 - The `npx getdesign@latest add claude` design step runs a third-party npm package — vet before running.
 - Admin role scope is still TBD.
-- Backups: Supabase free tier has daily backups but no PITR; restore has not been tested. Decide whether that's acceptable before real student data lands.
+- Backups: superseded by the resilience pass. Encrypted nightly off-site dumps with an automated restore test are built (`scripts/backup/`, `.github/workflows/backup.yml`) and verified locally, but **not active until Sam merges and adds the key + 2 GitHub settings** (see "Blocked on Sam" in the resilience section). Still open: whether to back up Storage videos, and the real-project restore drill.
 
 ## Audit self-check (2026-09-17, after commit 11; checklists re-read from disk)
 

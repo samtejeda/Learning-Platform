@@ -63,6 +63,7 @@ Pages are gated three times: proxy prefix rule → route-group layout (`requireU
 | `NEXT_PUBLIC_SITE_URL` | `lib/env.ts` for email links | yes in production |
 | `DATABASE_URL` | Drizzle at runtime (transaction pooler, 6543) | yes |
 | `DIRECT_URL` | drizzle-kit only (session pooler, 5432) | for migrations |
+| `DB_POOL_MAX` | `lib/db/pool-config.ts`: connections held per app instance (1–20; default 5 in production, 1 in dev) | no |
 | `NEXT_PUBLIC_SENTRY_DSN` | Sentry SDKs (browser + server), CSP `connect-src` | no: unset means Sentry is a no-op |
 | `SENTRY_AUTH_TOKEN` | Build only (private source-map upload). Secret, never `NEXT_PUBLIC_` | no: unset skips upload |
 | `SENTRY_ORG`, `SENTRY_PROJECT` | Build only (source-map upload target) | no |
