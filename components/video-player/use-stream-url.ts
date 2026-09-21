@@ -18,6 +18,7 @@ type State =
   | { status: "error"; url: null; message: string };
 
 const MESSAGES: Record<number, string> = {
+  401: "Your session has expired. Please sign in again to keep watching.",
   404: "This video isn't available.",
   429: "Too many requests. Please wait a moment and try again.",
   503: "Video is unavailable right now. Please try again.",
