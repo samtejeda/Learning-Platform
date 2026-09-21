@@ -23,6 +23,10 @@ Migrations applied. The project had leftover schema objects from an early `db:pu
 
 **Still open from the live verification checklist:** steps 4–7 (register → confirm → dashboard flow; rate-limit/reset/OTP behavior; role-based redirect; security headers via `next start`) need the app actually running through real flows — better done by hand or by the next session than scripted here.
 
+## Resilience pass (branch `worktree-academy-resilience`, started 2026-09-21) — commit log
+Plan: `~/.claude/plans/pasted-content-id-5c12-rate-limiting-quizzical-waterfall.md`. Decisions from Sam: Sentry free tier, UptimeRobot free, GitHub Actions encrypted nightly backups, Vercel Pro. Rate limiting was already done and is out of scope. Not merged to `main`; stops for Sam's review.
+- [x] 1. Structured logging + redaction. `lib/logging/redact.ts` (pure: key-based masking, email/phone/JWT/bearer scrubbing, bounded error serialisation) and `lib/logging/format.ts` (one JSON line: `ts, level, event, …fields`), both unit-tested (14 tests). `lib/logger.ts` is the server wrapper. All 8 `console.*` calls replaced. New security events, scope/code only and never emails, phones or IPs: `auth.sign_in_failed`, `auth.otp_verify_failed`, `auth.rate_limited`, `auth.code_exchange_failed`. ESLint `no-console` is `warn`. *Deviation from plan:* no `requestId` field. `headers()` is async in Next 16, and Vercel already correlates log lines to requests. **Post-merge sweep needed:** code arriving from the backend branch (`lib/storage`, new actions) still uses `console.*`, and the rate-limit sweep hunk will conflict trivially.
+
 ## Done
 - Drizzle schema (`lib/db/schema.ts`): 13 domain tables + `rate_limit_buckets`, relations, FKs with delete rules, unique indexes. RLS enabled on all. Versioned in `drizzle/` (0000–0004).
 - Supabase client helpers (`lib/supabase/client.ts`, `lib/supabase/server.ts`). No service-role key anywhere, by design.

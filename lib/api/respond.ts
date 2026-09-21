@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 import { AuthError } from "@/lib/auth/session";
+import { logger } from "@/lib/logger";
 
 /**
  * Uniform JSON error shape for route handlers:
@@ -45,6 +46,6 @@ export function handleRouteError(err: unknown) {
   if (err instanceof ZodError) {
     return jsonError(400, "invalid_input");
   }
-  console.error("[api] unhandled error", err);
+  logger.error("api.unhandled_error", { err });
   return jsonError(500, "internal_error");
 }

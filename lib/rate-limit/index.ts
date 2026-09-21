@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { rateLimitBuckets } from "@/lib/db/schema";
+import { logger } from "@/lib/logger";
 import {
   bucketKey,
   clientIpFromHeaders,
@@ -56,12 +57,12 @@ export async function checkRateLimit(opts: {
       void db
         .delete(rateLimitBuckets)
         .where(sql`${rateLimitBuckets.windowStart} < now() - interval '1 day'`)
-        .catch((err) => console.error("[rate-limit] sweep failed", err));
+        .catch((err) => logger.error("rate_limit.sweep_failed", { err }));
     }
 
     return evaluate(opts.window, row.count, row.windowStart);
   } catch (err) {
-    console.error("[rate-limit] check failed; failing closed", err);
+    logger.error("rate_limit.check_failed_closed", { scope: opts.scope, err });
     return { ok: false, retryAfterSeconds: 60 };
   }
 }
@@ -83,7 +84,10 @@ export async function enforceAuthRateLimit(
   const ip = await getClientIp();
 
   const byIp = await checkRateLimit({ scope, kind: "ip", subject: ip, window: policy.perIp });
-  if (!byIp.ok) return retryMessage(byIp.retryAfterSeconds);
+  if (!byIp.ok) {
+    logger.warn("auth.rate_limited", { scope, dimension: "ip" });
+    return retryMessage(byIp.retryAfterSeconds);
+  }
 
   if (identifier) {
     const byId = await checkRateLimit({
@@ -92,7 +96,10 @@ export async function enforceAuthRateLimit(
       subject: identifier.toLowerCase(),
       window: policy.perIdentifier,
     });
-    if (!byId.ok) return retryMessage(byId.retryAfterSeconds);
+    if (!byId.ok) {
+      logger.warn("auth.rate_limited", { scope, dimension: "identifier" });
+      return retryMessage(byId.retryAfterSeconds);
+    }
   }
   return null;
 }

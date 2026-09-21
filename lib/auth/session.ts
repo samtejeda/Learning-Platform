@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
+import { logger } from "@/lib/logger";
 import { homeForRole, type Role } from "./roles";
 
 export type CurrentUser = {
@@ -44,7 +45,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     columns: { id: true, role: true, fullName: true, email: true },
   });
   if (!row) {
-    console.error(`[auth] auth user ${user.id} has no public.users row`);
+    logger.error("auth.profile_row_missing", { userId: user.id });
     return null;
   }
   return row;

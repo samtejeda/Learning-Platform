@@ -5,6 +5,10 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  // Server output goes through lib/logger.ts (structured JSON, redacted).
+  // "warn" rather than "error" so code arriving from other branches nudges
+  // instead of breaking lint; the only sanctioned call site is in logger.ts.
+  { rules: { "no-console": "warn" } },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:
