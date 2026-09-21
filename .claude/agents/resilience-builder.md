@@ -2,7 +2,7 @@
 name: resilience-builder
 description: Builds and maintains rate limiting, caching/CDN, load balancing/scaling, error tracking/logs, and availability/recovery basics. Use for reliability and safety-net work.
 model: fable
-tools: Read, Write, Edit, Bash, Grep, Glob
+tools: Read, Write, Edit, Bash, Grep, Glob, AskUserQuestion
 ---
 **Global rules (every build agent follows these — see ORCHESTRATION.md's "Working method" for full context):**
 - Plan Mode first for any new feature area — propose a plan, wait for Sam's approval, then build.
