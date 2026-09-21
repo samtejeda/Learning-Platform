@@ -56,10 +56,39 @@ const securityHeaders = [
   { key: "Content-Security-Policy-Report-Only", value: csp },
 ];
 
+// Every route under these prefixes renders per-user data behind a session.
+// Next already marks dynamic responses no-store; stating it here too means a
+// future static/`revalidate` slip can't get one student's page cached by a CDN
+// or shared proxy and served to another.
+const AUTHENTICATED_PREFIXES = ["/dashboard", "/courses", "/professor", "/admin"];
+
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  images: {
+    // Modern formats first; the optimizer falls back per Accept header. No
+    // remotePatterns on purpose: Supabase signed URLs are unique per request,
+    // so optimizing them would never hit the cache and just bills
+    // transformations. Video/thumbnails come straight from Storage.
+    formats: ["image/avif", "image/webp"],
+  },
   async headers() {
-    return [{ source: "/(.*)", headers: securityHeaders }];
+    return [
+      { source: "/(.*)", headers: securityHeaders },
+      // Un-hashed static files from /public. A day fresh, a week stale-while-
+      // revalidate: a changed icon shows up within a day, and nothing waits on
+      // a revalidation. `_next/` is excluded: Next serves hashed build assets
+      // there as `immutable, max-age=1y` and this must not weaken that.
+      {
+        source: "/((?!_next/).*\\.(?:svg|ico|png|jpg|jpeg|gif|webp|avif))",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" },
+        ],
+      },
+      ...AUTHENTICATED_PREFIXES.map((prefix) => ({
+        source: `${prefix}/:path*`,
+        headers: [{ key: "Cache-Control", value: "private, no-store" }],
+      })),
+    ];
   },
 };
 
