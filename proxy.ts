@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   canAccessPath,
   homeForRole,
+  isApiPath,
   isAuthEntryPath,
   isPublicPath,
   roleFromClaims,
@@ -52,6 +53,13 @@ export async function proxy(request: NextRequest) {
 
   if (!claims) {
     if (isPublicPath(pathname)) return supabaseResponse;
+    // API callers get a machine-readable 401, not an HTML login redirect.
+    if (isApiPath(pathname)) {
+      return NextResponse.json(
+        { error: { code: "unauthenticated", message: "Please sign in." } },
+        { status: 401, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
     loginUrl.search = "";

@@ -18,7 +18,9 @@ Every server entry point in the app, in one place. **Rule: a new route handler o
 4. Returns only what the caller needs (explicit column selects and DTOs; no `select *`, no passwords/tokens/`reference_answer`).
 5. Uses generic user-facing errors that don't reveal whether an account exists.
 
-Proxy (`proxy.ts`) allows `/api/auth/*` through without a session; every other `/api/*` path requires one before the handler runs, and the handler checks again.
+Proxy (`proxy.ts`) allows `/api/auth/*` through without a session; every other `/api/*` path requires one before the handler runs, and the handler checks again. A signed-out `/api/*` call gets the JSON `401` `{ "error": { "code": "unauthenticated", "message": "Please sign in." } }` straight from the proxy (verified over HTTP) — never a redirect to the login page, which a `fetch` client would follow and mistake for success. Signed-out *page* requests still redirect to `/login?next=…`.
+
+Tests that back these conventions: `pnpm test` (pure logic), `pnpm test:integration` (real DB + real Storage, Next plumbing stubbed), `pnpm test:http` (running server, real sessions and proxy).
 
 ## Route handlers
 
