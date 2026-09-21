@@ -25,6 +25,8 @@ Proxy (`proxy.ts`) allows `/api/auth/*` through without a session; every other `
 | Method + path | Auth | Rate limit | Input | Output | Notes |
 |---|---|---|---|---|---|
 | `GET /api/auth/callback` | Public | Supabase's own (code is single-use) | `?code`, `?next` (sanitised by `safeNextPath`) | 302 to `next`, or `/login?error=link` | Exchanges PKCE code for a session cookie. Used by sign-up confirmation and password-reset emails. Never echoes the code. |
+| `GET /api/lectures/[lectureId]/stream` | `assertUser` + `getLectureForViewer` (student: enrolled **and** published; owning professor/admin: any status) | `lecture_progress` / user id (60/min) + IP (300/min) | path id (`uuidSchema`) | `{ url, expiresAt }` (15-min signed URL), `Cache-Control: no-store` | Not-enrolled, unpublished, and unknown ids are all 404. 503 `storage_unavailable` if signing fails. |
+| `POST /api/lectures/[lectureId]/progress` | `isSameOrigin` (403) → `assertUser` → enrollment + published inside `recordProgress` | `lecture_progress` / user id + IP | JSON `progressSegmentSchema` `{ from, to, position? }` (strict; seconds) | `{ accepted, percent, completed, watchedSeconds, intervals, justCompleted }` | Server merges the segment into watched ranges under `lib/progress/policy.ts`: >20 s or malformed → 400; faster-than-wall-clock → 200 `{ accepted:false, reason:"too_fast" }` (ignored, not credited); no duration yet → 409. Row locked `FOR UPDATE` in a transaction. Professors previewing get 404 (no progress recorded). |
 
 ## Server actions (`lib/auth/actions.ts`)
 
@@ -80,6 +82,7 @@ Pages are gated three times: proxy prefix rule → route-group layout (`requireU
 | `/` | — | redirects by role or to `/login` |
 | `/dashboard` | any signed-in user | `listEnrolledCourses(userId)` |
 | `/courses/[courseId]` | any signed-in user | `getCourseForStudent(courseId, userId)` (enrollment; 404 otherwise; **published** lectures only, with the student's own progress) |
+| `/courses/[courseId]/lectures/[lectureId]` | any signed-in user | `getLectureForViewer(lectureId, actor)` (enrolled + published, or course owner preview; lecture must belong to `courseId`; 404 otherwise). Renders `components/video-player/lecture-player.tsx`, which calls the two `/api/lectures/*` handlers. |
 | `/professor` | professor, admin | `listTaughtCourses(userId)` / admin: `listAllCourses()` |
 | `/professor/courses/new` | professor, admin | — (form → `createCourse`) |
 | `/professor/courses/[courseId]` | professor, admin | `getCourseForProfessor(courseId, actor)` (ownership; 404 otherwise; all lectures with status + roster) |

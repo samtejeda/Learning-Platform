@@ -94,21 +94,27 @@ Route groups don't appear in URLs, so each role's surface gets a distinct URL pr
 │   │   └── courses/[courseId]/
 │   ├── (admin)/admin/          # layout: requireRole("admin")
 │   └── api/                    # Route handlers — only for non-form traffic (see API.md)
-│       └── auth/callback/      # PKCE code exchange for email links
+│       ├── auth/callback/      # PKCE code exchange for email links
+│       └── lectures/[lectureId]/{stream,progress}/  # signed video URL; server-validated watch progress
 ├── components/
 │   ├── ui/                     # Button, SubmitButton, Input, Field, Card, Alert
 │   ├── app-shell.tsx           # Authenticated chrome (nav + sign-out)
-│   ├── video-player/           # (next phase) custom anti-scrub player
+│   ├── course-form.tsx, roster-manager.tsx, lecture-upload-form.tsx, lecture-list-manager.tsx  # plain professor UI
+│   ├── video-player/           # lecture-player.tsx: no native controls, seeks only into server-accepted ranges
 │   ├── exam-builder/           # (next phase)
 │   └── forum/                  # (next phase)
 ├── lib/
 │   ├── db/                     # Drizzle schema + client
 │   ├── data/                   # Query functions; each takes the acting user id and encodes permission in the query
+│   ├── courses/, enrollments/, lectures/  # actions.ts per domain (server actions)
+│   ├── progress/               # policy.ts: pure anti-scrub rules (merge intervals, wall-clock bound, completion)
+│   ├── storage/                # Service-role Supabase Storage client (signed URLs only) + pure path/MIME helpers
 │   ├── supabase/               # Supabase client helpers (server / client)
 │   ├── auth/                   # actions.ts (server actions), session.ts (getCurrentUser/require*/assert*), roles.ts (pure path/role rules)
 │   ├── validation/             # zod schemas + parseFormData
 │   ├── rate-limit/             # Postgres-backed limiter
-│   └── api/                    # respond.ts: JSON error helpers for route handlers
+│   └── api/                    # respond.ts: JSON error helpers + same-origin guard for route handlers
+├── test/                       # Integration-test harness (stubs, dev-only seed accounts) — see pnpm test:integration
 ├── drizzle/                    # Versioned SQL migrations + meta (committed)
 ├── proxy.ts                    # Gate 1: session + role-prefix redirect (Next.js 16 renamed middleware.ts → proxy.ts)
 └── drizzle.config.ts
@@ -120,7 +126,9 @@ Route groups don't appear in URLs, so each role's surface gets a distinct URL pr
 3. **Every page, server action, and route handler** calls `requireUser`/`requireRole` (pages) or `assertUser`/`assertRole` (actions/handlers) itself, and every `lib/data/*` function takes the acting user's id and enforces enrollment/ownership inside the query. Layouts don't re-run on sibling navigation, so gate 2 alone is never enough.
 
 ### Data access model
-All reads and writes go through Drizzle server-side. Every table has RLS enabled with no policies and PostgREST grants revoked (`drizzle/0001`, `0002`), so the Supabase REST API with the anon key is a wall, not a data path. The `public.users` row is created by a trigger on `auth.users` (`drizzle/0003`); app code never inserts it. `users.role` is mirrored into the JWT's `app_metadata.role` by trigger.
+All reads and writes go through Drizzle server-side. Every table has RLS enabled with no policies and PostgREST grants revoked (`drizzle/0001`, `0002`), so the Supabase REST API with the anon key is a wall, not a data path. The `public.users` row is created by a trigger on `auth.users` (`drizzle/0003`); app code never inserts it. `users.role` is mirrored into the JWT's `app_metadata.role` by trigger. Course invitations become enrollments by trigger when a matching account appears (`drizzle/0006`).
+
+**Storage:** the `lectures` bucket is private with no storage policies. `lib/storage/` holds the only use of `SUPABASE_SERVICE_ROLE_KEY`, and uses it exclusively to sign upload/stream URLs, check that an uploaded object exists, and delete objects — after the calling action/handler has verified ownership or enrollment. It is never used for database queries. Browsers upload directly to Storage with a one-time signed token for a server-chosen path; nothing large passes through Next.js.
 
 ## API Security Rules (non-negotiable)
 
