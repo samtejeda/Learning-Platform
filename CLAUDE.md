@@ -29,6 +29,7 @@ This project is being built with a multi-agent, minimal-check-in workflow. See:
 | Storage | Supabase Storage | Video files, assignment uploads, readings |
 | SMS/OTP | Twilio Verify (via Supabase Auth) | Phone-based OTP sign-in |
 | Deployment | Vercel | |
+| Error tracking | Sentry (free tier, `@sentry/nextjs`) | Approved by Sam 2026-09-18. PII off, no Replay/tracing, payloads scrubbed in `lib/sentry/`, source maps uploaded privately. A no-op without a DSN. See `docs/RUNBOOK.md`. |
 
 ## User Roles
 
@@ -108,6 +109,10 @@ Route groups don't appear in URLs, so each role's surface gets a distinct URL pr
 │   ├── auth/                   # actions.ts (server actions), session.ts (getCurrentUser/require*/assert*), roles.ts (pure path/role rules)
 │   ├── validation/             # zod schemas + parseFormData
 │   ├── rate-limit/             # Postgres-backed limiter
+│   ├── logger.ts               # Structured JSON logger (use this, never console.*); `error` level also goes to Sentry
+│   ├── logging/                # Pure redaction + log-line formatting (shared with Sentry scrubbing)
+│   ├── health/                 # Dependency probes behind GET /api/health
+│   ├── sentry/                 # Shared init options, event/breadcrumb scrubbing, client-error reporter
 │   └── api/                    # respond.ts: JSON error helpers for route handlers
 ├── drizzle/                    # Versioned SQL migrations + meta (committed)
 ├── proxy.ts                    # Gate 1: session + role-prefix redirect (Next.js 16 renamed middleware.ts → proxy.ts)

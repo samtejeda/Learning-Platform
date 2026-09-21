@@ -1,6 +1,7 @@
 import "server-only";
 
 import { cache } from "react";
+import * as Sentry from "@sentry/nextjs";
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { createClient } from "@/lib/supabase/server";
@@ -48,6 +49,9 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     logger.error("auth.profile_row_missing", { userId: user.id });
     return null;
   }
+  // Opaque id only, so an error report can be tied to "one affected user"
+  // without carrying a name, email or role. beforeSend strips the rest.
+  Sentry.setUser({ id: row.id });
   return row;
 });
 

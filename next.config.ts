@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs/config";
 
 const isDev = process.env.NODE_ENV !== "production";
 
@@ -7,6 +8,20 @@ const isDev = process.env.NODE_ENV !== "production";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 const supabaseOrigin = supabaseUrl ? new URL(supabaseUrl).origin : "";
 const supabaseWs = supabaseOrigin.replace(/^https?:/, "wss:");
+
+// Sentry's browser SDK posts events straight to its ingest host, taken from
+// the DSN (https://<key>@<host>/<project>). Allowing that origin in the CSP
+// is what lets us skip a tunnel route, which would be an extra public
+// endpoint. Empty (and harmless) when no DSN is configured.
+function originOf(value: string | undefined): string {
+  if (!value) return "";
+  try {
+    return new URL(value).origin;
+  } catch {
+    return "";
+  }
+}
+const sentryOrigin = originOf(process.env.NEXT_PUBLIC_SENTRY_DSN);
 
 // Content-Security-Policy. Shipped as Report-Only first: Next.js inlines
 // scripts and styles, so an enforced policy without per-request nonces would
@@ -18,7 +33,7 @@ const csp = [
   "style-src 'self' 'unsafe-inline'",
   `img-src 'self' data: blob: ${supabaseOrigin}`.trim(),
   `media-src 'self' blob: ${supabaseOrigin}`.trim(),
-  `connect-src 'self' ${supabaseOrigin} ${supabaseWs}`.trim(),
+  `connect-src 'self' ${supabaseOrigin} ${supabaseWs} ${sentryOrigin}`.trim(),
   "font-src 'self' data:",
   "object-src 'none'",
   "base-uri 'self'",
@@ -48,4 +63,17 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// Source maps: uploaded privately to Sentry at build time and then deleted
+// from the build output, so readable stack traces exist in Sentry only and
+// nothing is served to the public. Upload needs SENTRY_AUTH_TOKEN (+ org and
+// project); without them the build still succeeds and simply skips upload.
+export default withSentryConfig(nextConfig, {
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  silent: !process.env.CI,
+  // Don't phone Sentry with build-tooling usage stats.
+  telemetry: false,
+  widenClientFileUpload: true,
+  sourcemaps: { deleteSourcemapsAfterUpload: true },
+});
