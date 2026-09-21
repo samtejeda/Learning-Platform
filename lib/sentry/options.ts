@@ -9,6 +9,9 @@ import { isExpectedError, scrubBreadcrumb, scrubEvent } from "./scrub";
  *    and just sample nothing)
  *  - no Replay or Feedback integrations
  *  - `sendDefaultPii: false`: no IPs, cookies or headers from the SDK
+ *  - no release-health "session" pings and no client reports: telemetry we
+ *    don't use, and on the browser an extra request per page view on a phone
+ *    (sessions are switched off per SDK: client.ts and sentry.server.config.ts)
  *  - no tunnel route: it would be one more unauthenticated endpoint. The
  *    ingest origin is allowed in the CSP instead (next.config.ts).
  *
@@ -17,11 +20,17 @@ import { isExpectedError, scrubBreadcrumb, scrubEvent } from "./scrub";
  */
 const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
 
+/** Browser only: drop the release-health "session" ping sent on every page view. */
+export function withoutBrowserSession<T extends { name: string }>(defaults: T[]): T[] {
+  return defaults.filter((integration) => integration.name !== "BrowserSession");
+}
+
 export const sharedSentryOptions = {
   dsn,
   enabled: Boolean(dsn),
   environment: process.env.NEXT_PUBLIC_VERCEL_ENV ?? process.env.NODE_ENV,
   sendDefaultPii: false,
+  sendClientReports: false,
   beforeSend(event: ErrorEvent, hint: EventHint): ErrorEvent | null {
     if (isExpectedError(hint?.originalException)) return null;
     return scrubEvent(event);

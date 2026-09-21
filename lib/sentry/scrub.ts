@@ -99,7 +99,13 @@ export function scrubEvent<E extends EventLike>(event: E): E {
   }
 
   if (out.extra) out.extra = redact(out.extra) as Record<string, unknown>;
-  if (out.contexts) out.contexts = redact(out.contexts) as Record<string, unknown>;
+  if (out.contexts) {
+    // `culture` is the browser's locale + timezone: a coarse location hint we
+    // don't need for debugging and don't want for students.
+    const contexts = { ...out.contexts };
+    delete contexts.culture;
+    out.contexts = redact(contexts) as Record<string, unknown>;
+  }
 
   if (out.breadcrumbs) {
     out.breadcrumbs = out.breadcrumbs

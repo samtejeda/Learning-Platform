@@ -44,7 +44,11 @@ describe("scrubEvent", () => {
     },
     user: { id: "u-1", email: "kid@example.com", username: "kid", ip_address: "203.0.113.7" },
     extra: { password: "hunter2", note: "ok", who: "kid@example.com" },
-    contexts: { runtime: { name: "node" }, auth: { accessToken: "abc" } },
+    contexts: {
+      runtime: { name: "node" },
+      auth: { accessToken: "abc" },
+      culture: { locale: "en-US", timezone: "America/New_York" },
+    },
     breadcrumbs: [
       { category: "console", message: "hello kid@example.com" },
       { category: "ui.click", message: "button.text-red > Kid Name" },
@@ -66,6 +70,7 @@ describe("scrubEvent", () => {
       "Bearer xyz",
       "ip-10-0-0-1",
       "Kid Name",
+      "America/New_York",
     ]) {
       expect(json).not.toContain(leaked);
     }

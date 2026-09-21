@@ -1,4 +1,4 @@
-import * as Sentry from "@sentry/nextjs";
+import { loadSentry } from "./client";
 
 /**
  * Report an error caught by a React error boundary (`error.tsx`,
@@ -9,8 +9,11 @@ import * as Sentry from "@sentry/nextjs";
  * captured there by `onRequestError` with the real stack; the copy the
  * browser receives is redacted by Next and would only create a useless
  * duplicate issue. Only client-originated errors are reported here.
+ *
+ * Loads the SDK on demand, so an error that fires before the idle-time
+ * start still gets reported.
  */
 export function reportClientError(error: Error & { digest?: string }) {
   if (error.digest) return;
-  Sentry.captureException(error);
+  void loadSentry().then((Sentry) => Sentry?.captureException(error));
 }

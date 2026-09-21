@@ -35,6 +35,14 @@ afterAll(async () => {
   await Sentry.close();
 });
 
+describe("withoutBrowserSession", () => {
+  it("removes only the per-page-view session integration", async () => {
+    const { withoutBrowserSession } = await import("./options");
+    const defaults = [{ name: "BrowserSession" }, { name: "GlobalHandlers" }, { name: "Dedupe" }];
+    expect(withoutBrowserSession(defaults).map((i) => i.name)).toEqual(["GlobalHandlers", "Dedupe"]);
+  });
+});
+
 describe("Sentry SDK with our shared options", () => {
   it("sends a readable, fully scrubbed event", async () => {
     Sentry.setUser({ id: "u-1", email: "kid@example.com", username: "kid", ip_address: "203.0.113.7" });
