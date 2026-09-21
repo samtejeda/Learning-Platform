@@ -114,6 +114,8 @@ Route groups don't appear in URLs, so each role's surface gets a distinct URL pr
 │   ├── health/                 # Dependency probes behind GET /api/health
 │   ├── sentry/                 # Shared init options, event/breadcrumb scrubbing, client-error reporter
 │   └── api/                    # respond.ts: JSON error helpers for route handlers
+├── scripts/backup/             # Encrypted dump + restore-test (run by .github/workflows/backup.yml)
+├── docs/RUNBOOK.md             # Failure scenarios, rollback, backup drills
 ├── drizzle/                    # Versioned SQL migrations + meta (committed)
 ├── proxy.ts                    # Gate 1: session + role-prefix redirect (Next.js 16 renamed middleware.ts → proxy.ts)
 └── drizzle.config.ts

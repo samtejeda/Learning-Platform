@@ -1,0 +1,62 @@
+name: Nightly encrypted database backup
+
+# Dumps the Supabase database, encrypts it with a PUBLIC age key (only Sam's
+# offline private key can decrypt), proves the dump restores into a throwaway
+# Supabase-flavoured Postgres, and stores the encrypted file as a workflow
+# artifact for 30 days. Any failure fails the run, and GitHub emails the repo
+# owner. Procedure, drills and recovery steps: docs/RUNBOOK.md.
+#
+# Notes
+#  - Scheduled workflows run from the default branch only, so this does nothing
+#    until it is merged to main.
+#  - GitHub pauses scheduled workflows after 60 days without repository
+#    activity. If backups stop appearing, that is the first thing to check.
+#  - Deliberately no pull_request trigger: this job holds a database credential.
+
+on:
+  schedule:
+    - cron: "17 7 * * *" # 07:17 UTC daily (about 3am US Eastern), off the :00 rush
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: database-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      # Actions are pinned to commit SHAs (tags can be moved). Both are GitHub's
+      # own actions; SHAs for the v4 tags as of 2026-09-21.
+      - name: Check out scripts
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install age
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq age
+
+      - name: Dump, encrypt, then restore-test
+        env:
+          # Session-pooler URL (port 5432): the db.<ref>.supabase.co host is
+          # IPv6-only and unreachable from GitHub runners.
+          DIRECT_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          # A PUBLIC key ("age1..."), safe to store as a plain repo variable.
+          BACKUP_AGE_RECIPIENT: ${{ vars.BACKUP_AGE_PUBLIC_KEY }}
+          BACKUP_OUT: ${{ runner.temp }}/backup-out
+        run: bash scripts/backup/run.sh
+
+      # Only ever the encrypted file. `always()` so that a failed restore test
+      # (which exits non-zero AFTER encrypting) still keeps that night's copy.
+      - name: Upload encrypted backup
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: db-backup-${{ github.run_id }}
+          path: ${{ runner.temp }}/backup-out/*.tar.age
+          if-no-files-found: error
+          retention-days: 30
