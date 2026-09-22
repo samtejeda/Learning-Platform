@@ -1,11 +1,13 @@
 import "server-only";
 
 import { cache } from "react";
+import * as Sentry from "@sentry/nextjs";
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
+import { logger } from "@/lib/logger";
 import { homeForRole, type Role } from "./roles";
 
 export type CurrentUser = {
@@ -44,9 +46,12 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     columns: { id: true, role: true, fullName: true, email: true },
   });
   if (!row) {
-    console.error(`[auth] auth user ${user.id} has no public.users row`);
+    logger.error("auth.profile_row_missing", { userId: user.id });
     return null;
   }
+  // Opaque id only, so an error report can be tied to "one affected user"
+  // without carrying a name, email or role. beforeSend strips the rest.
+  Sentry.setUser({ id: row.id });
   return row;
 });
 

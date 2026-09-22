@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getSiteUrl } from "@/lib/env";
+import { logger } from "@/lib/logger";
 import { enforceAuthRateLimit } from "@/lib/rate-limit";
 import { parseFormData, parseObject, type ActionState } from "@/lib/validation/form";
 import {
@@ -46,6 +47,9 @@ export async function signInWithEmail(
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
+    // Scope and code only: no email, so a spike is alertable without logging
+    // who was targeted.
+    logger.warn("auth.sign_in_failed", { reason: error.code ?? error.status });
     return { error: GENERIC_SIGN_IN_ERROR, values: { email } };
   }
 
@@ -92,7 +96,10 @@ export async function verifyPhoneOTP(input: {
 
   const supabase = await createClient();
   const { error } = await supabase.auth.verifyOtp({ phone, token, type: "sms" });
-  if (error) return { error: GENERIC_OTP_ERROR, values: { phone } };
+  if (error) {
+    logger.warn("auth.otp_verify_failed", { reason: error.code ?? error.status });
+    return { error: GENERIC_OTP_ERROR, values: { phone } };
+  }
 
   redirect(destination(next));
 }
@@ -137,7 +144,7 @@ export async function signUp(_prev: ActionState, formData: FormData): Promise<Ac
     if (error.code === "over_email_send_rate_limit") {
       return { error: "Too many sign-up attempts. Please try again later.", values: { fullName, email } };
     }
-    console.error("[auth] signUp error:", error.code ?? error.status, error.message);
+    logger.error("auth.sign_up_failed", { err: error });
     return { error: "Sign up is unavailable right now. Please try again.", values: { fullName, email } };
   }
 
@@ -163,7 +170,7 @@ export async function requestPasswordReset(
   });
 
   // Always return success to avoid leaking whether an email exists
-  if (error) console.error("[auth] password reset error:", error.message);
+  if (error) logger.error("auth.password_reset_failed", { err: error });
   return { success: "If that email is registered, a reset link is on its way." };
 }
 
@@ -188,7 +195,7 @@ export async function updatePassword(
     if (error.code === "weak_password") {
       return { error: "That password is too easy to guess. Try a longer one." };
     }
-    console.error("[auth] updatePassword error:", error.code ?? error.status);
+    logger.error("auth.update_password_failed", { userId: user.id, err: error });
     return { error: "We couldn't update your password. Please try again." };
   }
 

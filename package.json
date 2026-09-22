@@ -30,6 +30,7 @@
     "flow-lecture": "node scripts/flow-lecture.mjs"
   },
   "dependencies": {
+    "@sentry/nextjs": "^10.75.0",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.116.0",
     "drizzle-orm": "^0.45.2",

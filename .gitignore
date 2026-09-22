@@ -39,6 +39,13 @@ Thumbs.db
 # Vercel
 .vercel
 
+# Database backups (contain student account data). scripts/backup writes
+# encrypted files to ./backups by default; plaintext dumps must never be in
+# the repo at all, so these patterns are a last line of defence.
+backups/
+*.dump
+*.tar.age
+
 # Frontend audit screenshots (scripts/screenshots.mjs)
 .screenshots/
 .auth/

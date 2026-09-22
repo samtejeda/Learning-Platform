@@ -18,7 +18,7 @@ Every server entry point in the app, in one place. **Rule: a new route handler o
 4. Returns only what the caller needs (explicit column selects and DTOs; no `select *`, no passwords/tokens/`reference_answer`).
 5. Uses generic user-facing errors that don't reveal whether an account exists.
 
-Proxy (`proxy.ts`) allows `/api/auth/*` through without a session; every other `/api/*` path requires one before the handler runs, and the handler checks again. A signed-out `/api/*` call gets the JSON `401` `{ "error": { "code": "unauthenticated", "message": "Please sign in." } }` straight from the proxy (verified over HTTP) — never a redirect to the login page, which a `fetch` client would follow and mistake for success. Signed-out *page* requests still redirect to `/login?next=…`.
+Proxy (`proxy.ts`) allows `/api/auth/*` and `/api/health` through without a session; every other `/api/*` path requires one before the handler runs, and the handler checks again. A signed-out `/api/*` call gets the JSON `401` `{ "error": { "code": "unauthenticated", "message": "Please sign in." } }` straight from the proxy (verified over HTTP) — never a redirect to the login page, which a `fetch` client would follow and mistake for success. Signed-out *page* requests still redirect to `/login?next=…`.
 
 Tests that back these conventions: `pnpm test` (pure logic), `pnpm test:integration` (real DB + real Storage, Next plumbing stubbed), `pnpm test:http` (running server, real sessions and proxy).
 
@@ -27,6 +27,7 @@ Tests that back these conventions: `pnpm test` (pure logic), `pnpm test:integrat
 | Method + path | Auth | Rate limit | Input | Output | Notes |
 |---|---|---|---|---|---|
 | `GET /api/auth/callback` | Public | Supabase's own (code is single-use) | `?code`, `?next` (sanitised by `safeNextPath`) | 302 to `next`, or `/login?error=link` | Exchanges PKCE code for a session cookie. Used by sign-up confirmation and password-reset emails. Never echoes the code. |
+| `GET /api/health` | Public (uptime monitors have no session) | None needed: probe results are cached ~10s per instance, so dependency load is bounded regardless of callers | none | `200 {status:"ok"}` or `503 {status:"degraded", checks:{database, auth}}` (values `ok`/`fail`) | Checks Postgres (`select 1`) and Supabase Auth's health endpoint, 3s timeout each. URL comes from env, never request input. No versions, timings, hosts or error text. `Cache-Control: no-store`. Twilio has no direct probe (only reachable via Supabase Auth). |
 | `GET /api/lectures/[lectureId]/stream` | `assertUser` + `getLectureForViewer` (student: enrolled **and** published; owning professor/admin: any status) | `lecture_progress` / user id (60/min) + IP (300/min) | path id (`uuidSchema`) | `{ url, expiresAt }` (15-min signed URL), `Cache-Control: no-store` | Not-enrolled, unpublished, and unknown ids are all 404. 503 `storage_unavailable` if signing fails. |
 | `POST /api/lectures/[lectureId]/progress` | `isSameOrigin` (403) → `assertUser` → enrollment + published inside `recordProgress` | `lecture_progress` / user id + IP | JSON `progressSegmentSchema` `{ from, to, position? }` (strict; seconds) | `{ accepted, percent, completed, watchedSeconds, intervals, justCompleted }` | Server merges the segment into watched ranges under `lib/progress/policy.ts`: >20 s or malformed → 400; faster-than-wall-clock → 200 `{ accepted:false, reason:"too_fast" }` (ignored, not credited); no duration yet → 409. Row locked `FOR UPDATE` in a transaction. Professors previewing get 404 (no progress recorded). |
 
@@ -102,6 +103,10 @@ Pages are gated three times: proxy prefix rule → route-group layout (`requireU
 | `DATABASE_URL` | Drizzle at runtime (transaction pooler, 6543) | yes |
 | `DIRECT_URL` | drizzle-kit only (session pooler, 5432) | for migrations |
 | `SUPABASE_SERVICE_ROLE_KEY` | `lib/storage` **only** — signed upload/stream URLs, object checks, deletes on the private `lectures` bucket | yes (lectures) |
+| `DB_POOL_MAX` | `lib/db/pool-config.ts`: connections held per app instance (1–20; default 5 in production, 1 in dev) | no |
+| `NEXT_PUBLIC_SENTRY_DSN` | Sentry SDKs (browser + server), CSP `connect-src` | no: unset means Sentry is a no-op |
+| `SENTRY_AUTH_TOKEN` | Build only (private source-map upload). Secret, never `NEXT_PUBLIC_` | no: unset skips upload |
+| `SENTRY_ORG`, `SENTRY_PROJECT` | Build only (source-map upload target) | no |
 
 The service-role key is server-only and is used exclusively for Storage (decision 2026-09-18). It is never used for database access: all data goes through Drizzle on the table-owner connection so app-layer authorization always applies, and PostgREST is fully denied (see `drizzle/0002`). The bucket has no storage policies, so the browser can only ever act on a URL the server signed after checking ownership/enrollment.
 

@@ -51,6 +51,13 @@ describe("isPublicPath / isAuthEntryPath", () => {
     expect(isPublicPath("/api/courses")).toBe(false);
   });
 
+  it("makes only the exact health path public for uptime monitors", () => {
+    expect(isPublicPath("/api/health")).toBe(true);
+    expect(isPublicPath("/api/healthz")).toBe(false);
+    expect(isPublicPath("/api/health/db")).toBe(false);
+    expect(isAuthEntryPath("/api/health")).toBe(false);
+  });
+
   it("auth-entry pages exclude the API", () => {
     expect(isAuthEntryPath("/login")).toBe(true);
     expect(isAuthEntryPath("/api/auth/callback")).toBe(false);
