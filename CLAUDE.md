@@ -170,9 +170,9 @@ Primary target is phone users. Design and test mobile layouts first. Desktop is 
 pnpm dev          # start dev server
 pnpm build        # production build
 pnpm lint         # eslint
+pnpm typecheck    # tsc --noEmit
 pnpm test         # vitest (unit tests under lib/**)
-pnpm test:integration  # lib/**/*.integration.test.ts against the DB in .env.local (seeds dev-only @example.test accounts; never point at prod)
-pnpm test:http    # test/http/*.http.test.ts against a RUNNING server (pnpm build && pnpm start -p 3111): real sessions, proxy, Storage
+pnpm build:vercel # Vercel's build command: migrate (production only) then build
 pnpm db:generate  # diff lib/db/schema.ts against drizzle/meta and write a new migration
 pnpm db:migrate   # apply pending migrations in drizzle/ (run before every deploy)
 pnpm db:check     # verify drizzle/ migrations + snapshots are consistent
@@ -180,3 +180,8 @@ pnpm db:studio    # open Drizzle Studio
 ```
 
 Migrations are versioned in `drizzle/` and committed (including `drizzle/meta/`). There is deliberately no `db:push` script: push applies schema changes without recording them in the journal and desyncs the DB from `drizzle/`. Schema change workflow: edit `lib/db/schema.ts` → `pnpm db:generate` → review the SQL → commit → `pnpm db:migrate`. For SQL that Drizzle can't model (grants, triggers, functions) use `pnpm drizzle-kit generate --custom --name=<slug>` and write the SQL by hand.
+
+### CI and deployment
+- **CI** (`.github/workflows/ci.yml`): every PR and push to `main` runs lint, typecheck, unit tests, `db:check`, and `build` (placeholder env, no secrets). `main` is branch-protected on the `checks` job.
+- **Deploy**: Vercel, connected to the GitHub repo. Merge to `main` → production; every PR → preview URL. `vercel.json` sets the build command to `pnpm build:vercel`, which applies pending migrations **only when `VERCEL_ENV=production`** (needs `DIRECT_URL` in Production scope; never set it in Preview), then builds. A failed migration fails the deploy and the previous one stays live.
+- **Rollback**: Vercel → Deployments → previous deployment → Instant Rollback. Migrations are forward-only; a rollback reverts code, not schema, so write migrations backward-compatible with the previous deploy.

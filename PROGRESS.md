@@ -2,7 +2,7 @@
 
 Source of truth for where this project actually stands. Read this before resuming work in a new session — trust this over assumptions in `CLAUDE.md`'s narrative sections, since code moves faster than docs.
 
-Last reconciled: 2026-09-18 (core CRUD — courses & lectures — complete on branch `worktree-academy-backend`, awaiting Sam's review; see "Frontend handoff" and "Manual end-to-end" below).
+Last reconciled: 2026-09-18 (foundation phase complete; CI + Vercel config added on `chore/ci-and-vercel`, PR #1).
 
 ## Foundation phase (2026-09-17) — commit log
 - [x] 1. `proxy.ts` exported `middleware` and `runtime`; Next 16 requires a `proxy` export and forbids segment config in that file, so the auth gate never ran and `pnpm build` failed. Fixed. `drizzle/meta/` un-ignored so migrations can be versioned. `DIRECT_URL` added to `.env.local.example`.
@@ -30,6 +30,19 @@ Plan approved by Sam 2026-09-18 with the four decisions below (see "Decisions & 
 - [x] 4. Lectures: `lib/validation/lectures.ts` (+tests), `getOwnedLecture` (ownership joined through the course) + writes in `lib/data/lectures.ts` (insert with next order, mark uploaded, publish gated on upload, reorder in one transaction covering exactly the course's lectures, delete), `lib/lectures/actions.ts` (`createLecture` → signed upload token for a server-chosen path, `retryLectureUpload`, `finalizeLectureUpload` verifies the object + content type server-side, `publishLecture`/`unpublishLecture`, `updateLecture`, `reorderLectures`, `deleteLecture` removes the object first). UI: `components/lecture-upload-form.tsx` (browser → Storage directly via `uploadToSignedUrl`, reads duration locally, then finalizes), `components/lecture-list-manager.tsx` (status, publish/unpublish, delete, move up/down, retry pending upload, edit link), `/professor/lectures/[id]/edit`. 7 integration tests (Storage mocked; the real signed-URL round trip still needs the service-role key — see Blocked).
 - [x] 3. Enrollment invites: `inviteByEmail` (one transaction; enrolls now if the account exists, else stores the invitation for the 0006 trigger), `removeEnrollment`, `removeInvitation`; `lib/enrollments/actions.ts` (`inviteStudent` rate-limited 40/h per professor, `removeStudent`, `revokeInvitation`); `components/roster-manager.tsx` on the professor course page. **Integration-test harness** added: `pnpm test:integration` runs `lib/**/*.integration.test.ts` against the DB in `.env.local` with Next request plumbing stubbed and dev-only `@example.test` accounts seeded (`test/seed.ts`; refuses to run without `INTEGRATION_TESTS=1`). 17 tests prove the ownership rules, invite idempotency, trigger-on-signup activation, and the rate limit against the real DB.
 - [x] 2. Courses: `lib/validation/courses.ts` (+tests), `findOwnedCourse` / `insertCourse` / `updateCourse` in `lib/data/courses.ts` (ownership in every WHERE, admin bypass), `lib/data/lectures.ts` (professor list with status; student list = published only + own progress), `lib/data/enrollments.ts` (`listRoster`), `lib/courses/actions.ts` (`createCourse`, `updateCourse`), `components/course-form.tsx`, `/professor/courses/new`, `/professor/courses/[id]/edit`, professor course page shows lecture status + roster, student course page links lectures and shows percent/completed.
+
+## Platform ops: CI + Vercel config (2026-09-18) — branch `chore/ci-and-vercel`, PR #1 (awaiting Sam's merge)
+- [x] 1. Toolchain pinned: `packageManager: pnpm@11.0.8`, `engines.node: 24.x`, `.nvmrc`, `pnpm typecheck`.
+- [x] 2. `.github/workflows/ci.yml`: one `checks` job on every PR and push to `main` — lint, typecheck, unit tests, `db:check`, `build`. Placeholder env only (build evaluates `lib/db/index.ts`, which throws without `DATABASE_URL`, but nothing connects at build time), no secrets. Shallow clone. **Verified green on GitHub** (run on PR #1). Integration tests deliberately excluded (need a real DB). `.github/dependabot.yml`: weekly, grouped npm + Actions updates.
+- [x] 3. `vercel.json` + `scripts/vercel-build.sh` (`pnpm build:vercel`): production builds run `drizzle-kit migrate` then `next build`; previews skip migrations; fails fast without `DIRECT_URL`. Region `iad1` (Supabase pooler is us-east-1). Verified locally: preview path skips + builds; production path without `DIRECT_URL` exits 1. The production path with a real `DIRECT_URL` was not run locally on purpose.
+- [x] 4. GitHub settings applied: `main` protected (required check `checks`, up-to-date branch required, PR required, 0 approvals, admins may bypass, no force-push/deletion); delete-branch-on-merge on.
+
+### Sam: Vercel setup checklist (I can't do this part: it needs your login)
+1. vercel.com → Add New → Project → import `samtejeda/Learning-Platform`. Framework (Next.js) and build/install commands come from `vercel.json`. Production branch: `main`.
+2. Environment variables. **Production:** `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SITE_URL` (real `https://` origin; use the `*.vercel.app` URL until a domain exists, then redeploy), `DATABASE_URL` (transaction pooler, 6543, percent-encoded), `DIRECT_URL` (session pooler, 5432, **Production scope only**). **Preview:** the same four *except* `DIRECT_URL`. See the scope notes in `.env.local.example`.
+3. Supabase → Auth → URL Configuration: set Site URL and add `<origin>/api/auth/callback` to Redirect URLs (and a wildcard for preview URLs if you want auth to work on previews).
+4. First deploy, then check: `curl -I https://<origin>/login` shows the security headers and no `x-powered-by`; open a throwaway PR and confirm a preview URL appears; run **Instant Rollback** once (Deployments → an earlier deploy → Instant Rollback, then promote the latest again) so "rollback tested" is real.
+5. Billing: Vercel → Settings → Billing/Spend alerts, and Supabase → usage alerts.
 
 ## Done
 - Drizzle schema (`lib/db/schema.ts`): 14 domain tables + `rate_limit_buckets`, relations, FKs with delete rules, unique indexes. RLS enabled on all. Versioned in `drizzle/` (0000–0006).
@@ -83,7 +96,7 @@ To re-run the automated wire tests: `pnpm build && pnpm start -p 3111` in one te
 3. **Exams** (builder UI, publish gate, submissions, manual grading; `reference_answer` never sent to students).
 4. **Assignments** (private bucket for uploads, grading).
 5. **Forum** (course-level posts, lecture-anchored posts, replies). Consider Realtime → would need the first real RLS policy.
-6. **Hardening pass**: enforce CSP with nonces; Playwright e2e for auth + role gating; CI runs `lint`, `test`, `build`, `db:check`; `db:migrate` step in deploy.
+6. **Hardening pass**: enforce CSP with nonces; Playwright e2e for auth + role gating. (CI running `lint`/`test`/`build`/`db:check` and the production `db:migrate` deploy step are done: see "Platform ops" above; only the Vercel dashboard setup is left.)
 7. **Design pass** once `DESIGN.md` exists (vet `npx getdesign` first) — UI is deliberately plain until then.
 8. **Profile: attach/verify a phone** on an existing account (needed now that OTP can't create accounts): `updateUser({ phone })` + `verifyOtp({ type: "phone_change" })`.
 9. **Admin scope** — needs Sam's definition; today roles are changed by SQL.
