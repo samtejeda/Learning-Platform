@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Learning Platform">
+  <rect width="32" height="32" rx="8" fill="#faf9f5"/>
+  <path d="M8 9.5c3.2-1.6 5.6-1.6 8 0v14c-2.4-1.6-4.8-1.6-8 0z" fill="#141413"/>
+  <path d="M16 9.5c2.4-1.6 4.8-1.6 8 0v14c-3.2-1.6-5.6-1.6-8 0z" fill="#cc785c"/>
+</svg>

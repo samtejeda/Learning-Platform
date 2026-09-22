@@ -38,3 +38,7 @@ Thumbs.db
 
 # Vercel
 .vercel
+
+# Frontend audit screenshots (scripts/screenshots.mjs)
+.screenshots/
+.auth/

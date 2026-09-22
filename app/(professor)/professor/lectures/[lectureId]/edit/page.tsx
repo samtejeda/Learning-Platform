@@ -1,10 +1,11 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { getOwnedLecture } from "@/lib/data/lectures";
 import { updateLecture } from "@/lib/lectures/actions";
 import { Card } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
+import { BackLink } from "@/components/ui/back-link";
 import { CourseForm } from "@/components/course-form";
 
 const paramsSchema = z.object({ lectureId: z.uuid() });
@@ -25,16 +26,12 @@ export default async function EditLecturePage({
   if (!lecture) notFound();
 
   return (
-    <div className="space-y-6 max-w-xl">
-      <div>
-        <Link
-          href={`/professor/courses/${lecture.courseId}`}
-          className="text-sm text-slate-500 hover:text-slate-900"
-        >
-          ← Back to course
-        </Link>
-        <h1 className="text-2xl font-semibold text-slate-900 mt-2">Edit lecture</h1>
-      </div>
+    <div className="max-w-xl space-y-6 sm:space-y-8">
+      <PageHeader
+        back={<BackLink href={`/professor/courses/${lecture.courseId}`}>Back to course</BackLink>}
+        title="Edit lecture"
+        lead="Title and description only. To replace the video, delete the lecture and upload again."
+      />
       <Card>
         {/* Same field names as a course (title, description); the bound id is re-checked in the action. */}
         <CourseForm

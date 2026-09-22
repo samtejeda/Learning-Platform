@@ -1,8 +1,8 @@
 import "server-only";
 
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { courses, enrollments, users } from "@/lib/db/schema";
+import { courses, enrollments, lectureProgress, lectures, users } from "@/lib/db/schema";
 import type { Role } from "@/lib/auth/roles";
 import { listLecturesForProfessor, listPublishedLecturesForStudent, type ProfessorLecture, type StudentLecture } from "./lectures";
 import { listRoster, type Roster } from "./enrollments";
@@ -41,6 +41,40 @@ const summaryColumns = {
 export async function listEnrolledCourses(studentId: string): Promise<CourseSummary[]> {
   return db
     .select(summaryColumns)
+    .from(enrollments)
+    .innerJoin(courses, eq(enrollments.courseId, courses.id))
+    .where(eq(enrollments.studentId, studentId))
+    .orderBy(asc(courses.title));
+}
+
+export type EnrolledCourseSummary = CourseSummary & {
+  /** Published lectures only — drafts never count towards a student's total. */
+  lectureCount: number;
+  completedCount: number;
+};
+
+/**
+ * Enrolled courses with the student's own completion counts, for the
+ * dashboard. Same enrollment join as listEnrolledCourses; the counts are
+ * correlated subqueries scoped to this student, so nobody else's progress
+ * can leak in.
+ */
+export async function listEnrolledCoursesWithProgress(
+  studentId: string,
+): Promise<EnrolledCourseSummary[]> {
+  return db
+    .select({
+      ...summaryColumns,
+      lectureCount: sql<number>`(
+        select count(*)::int from ${lectures} l
+        where l.course_id = ${courses.id} and l.published_at is not null
+      )`,
+      completedCount: sql<number>`(
+        select count(*)::int from ${lectures} l
+        join ${lectureProgress} p on p.lecture_id = l.id and p.student_id = ${studentId}
+        where l.course_id = ${courses.id} and l.published_at is not null and p.completed
+      )`,
+    })
     .from(enrollments)
     .innerJoin(courses, eq(enrollments.courseId, courses.id))
     .where(eq(enrollments.studentId, studentId))

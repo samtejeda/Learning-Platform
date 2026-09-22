@@ -2,11 +2,13 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import type { CurrentUser } from "@/lib/auth/session";
 import { homeForRole } from "@/lib/auth/roles";
+import { MainNav, type NavItem } from "./main-nav";
 import { SignOutButton } from "./sign-out-button";
+import { Wordmark } from "./wordmark";
 
-const NAV: Record<CurrentUser["role"], { href: string; label: string }[]> = {
+const NAV: Record<CurrentUser["role"], NavItem[]> = {
   student: [{ href: "/dashboard", label: "My courses" }],
-  professor: [{ href: "/professor", label: "My courses" }],
+  professor: [{ href: "/professor", label: "Teaching" }],
   admin: [
     { href: "/admin", label: "Admin" },
     { href: "/professor", label: "Courses" },
@@ -14,38 +16,33 @@ const NAV: Record<CurrentUser["role"], { href: string; label: string }[]> = {
 };
 
 /**
- * Minimal authenticated chrome: app name, role-aware nav, sign-out.
- * Intentionally unstyled beyond structure; the DESIGN.md pass comes later.
+ * Authenticated chrome: skip link, sticky cream top bar (DESIGN.md top-nav,
+ * hairline bottom), role-aware nav, content column. The main column is
+ * max-w-5xl so long-form course text stays at a readable measure.
  */
 export function AppShell({ user, children }: { user: CurrentUser; children: ReactNode }) {
+  const account = user.fullName ?? user.email ?? "Account";
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
-      <header className="bg-white border-b border-slate-200">
-        <div className="mx-auto max-w-5xl px-4 h-14 flex items-center justify-between gap-4">
-          <Link href={homeForRole(user.role)} className="font-semibold text-slate-900">
-            Learning Platform
+    <div className="flex min-h-screen flex-col">
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-ink focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-on-dark"
+      >
+        Skip to content
+      </a>
+      <header className="sticky top-0 z-20 border-b border-hairline bg-canvas/95 backdrop-blur">
+        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-4 px-4 sm:h-16">
+          <Link href={homeForRole(user.role)} className="rounded-md focus-visible:focus-ring">
+            <Wordmark />
           </Link>
-          <nav className="flex items-center gap-1 sm:gap-3 text-sm">
-            {NAV[user.role].map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="px-2 py-1.5 rounded-md text-slate-600 hover:text-slate-900 hover:bg-slate-100"
-              >
-                {item.label}
-              </Link>
-            ))}
-            <span className="hidden sm:inline text-slate-400" aria-hidden>
-              |
-            </span>
-            <span className="hidden sm:inline text-slate-500 truncate max-w-40">
-              {user.fullName ?? user.email ?? "Account"}
-            </span>
+          <MainNav items={NAV[user.role]} account={account}>
             <SignOutButton />
-          </nav>
+          </MainNav>
         </div>
       </header>
-      <main className="flex-1 mx-auto w-full max-w-5xl px-4 py-6 sm:py-8">{children}</main>
+      <main id="main" className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 sm:py-10">
+        {children}
+      </main>
     </div>
   );
 }

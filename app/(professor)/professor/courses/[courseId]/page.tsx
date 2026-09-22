@@ -4,7 +4,9 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { getCourseForProfessor } from "@/lib/data/courses";
 import { inviteStudent, removeStudent, revokeInvitation } from "@/lib/enrollments/actions";
-import { Card } from "@/components/ui/card";
+import { Card, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
+import { BackLink } from "@/components/ui/back-link";
 import { buttonClassName } from "@/components/ui/button";
 import { RosterManager } from "@/components/roster-manager";
 import { LectureListManager } from "@/components/lecture-list-manager";
@@ -25,43 +27,51 @@ export default async function ProfessorCoursePage({
   const course = await getCourseForProfessor(parsed.data.courseId, user);
   if (!course) notFound();
 
+  const published = course.lectures.filter((l) => l.status === "published").length;
+  const enrolledCount = course.roster.enrolled.length;
+  const invitedCount = course.roster.invited.length;
+
   return (
-    <div className="space-y-6">
-      <div>
-        <Link href="/professor" className="text-sm text-slate-500 hover:text-slate-900">
-          ← My courses
-        </Link>
-        <div className="flex items-start justify-between gap-4 mt-2">
-          <div>
-            <h1 className="text-2xl font-semibold text-slate-900">{course.title}</h1>
-            {course.professorName && (
-              <p className="text-sm text-slate-500 mt-1">Taught by {course.professorName}</p>
-            )}
-          </div>
-          <Link
-            href={`/professor/courses/${course.id}/edit`}
-            className={buttonClassName("secondary")}
-          >
-            Edit
+    <div className="space-y-6 sm:space-y-8">
+      <PageHeader
+        back={<BackLink href="/professor">Teaching</BackLink>}
+        title={course.title}
+        eyebrow={course.professorName ? `Taught by ${course.professorName}` : undefined}
+        lead={course.description}
+        actions={
+          <Link href={`/professor/courses/${course.id}/edit`} className={buttonClassName("secondary")}>
+            Edit details
           </Link>
-        </div>
-        {course.description && (
-          <p className="text-slate-700 mt-3 whitespace-pre-line">{course.description}</p>
-        )}
-      </div>
+        }
+      />
 
       <Card>
-        <h2 className="font-semibold text-slate-900 mb-3">Lectures</h2>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <CardTitle>Lectures</CardTitle>
+          <span className="text-sm tabular-nums text-muted">
+            {course.lectures.length === 0
+              ? "None yet"
+              : `${published} of ${course.lectures.length} published`}
+          </span>
+        </div>
         <LectureListManager courseId={course.id} lectures={course.lectures} />
       </Card>
 
-      <Card>
-        <h2 className="font-semibold text-slate-900 mb-3">Add a lecture</h2>
+      <Card variant="outlined">
+        <CardTitle>Add a lecture</CardTitle>
+        <p className="mb-5 mt-1 text-sm text-muted">
+          Upload the video, then publish it when you&apos;re ready. Students only see published lectures.
+        </p>
         <LectureUploadForm courseId={course.id} />
       </Card>
 
       <Card>
-        <h2 className="font-semibold text-slate-900 mb-3">Students</h2>
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <CardTitle>Students</CardTitle>
+          <span className="text-sm text-muted">
+            {enrolledCount} enrolled{invitedCount > 0 ? ` · ${invitedCount} invited` : ""}
+          </span>
+        </div>
         {/* Bound ids are re-validated and ownership re-checked inside each action. */}
         <RosterManager
           roster={course.roster}
