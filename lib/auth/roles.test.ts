@@ -41,7 +41,13 @@ describe("homeForRole", () => {
 
 describe("isPublicPath / isAuthEntryPath", () => {
   it("treats auth pages and the auth API as public", () => {
-    for (const p of ["/login", "/register", "/reset-password", "/api/auth/callback"]) {
+    for (const p of [
+      "/login",
+      "/register",
+      "/reset-password",
+      "/resend-confirmation",
+      "/api/auth/callback",
+    ]) {
       expect(isPublicPath(p)).toBe(true);
     }
     expect(isPublicPath("/")).toBe(false);

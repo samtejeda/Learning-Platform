@@ -15,7 +15,12 @@ export default function RegisterPage() {
   return (
     <AuthCard title="Create account" lead="Sign up as a student">
       {state?.success ? (
-        <Alert tone="success">{state.success}</Alert>
+        <div className="space-y-4">
+          <Alert tone="success">{state.success}</Alert>
+          <p className="text-center text-sm text-muted">
+            <TextLink href="/resend-confirmation">Didn&apos;t get it?</TextLink>
+          </p>
+        </div>
       ) : (
         <form action={action} className="space-y-4" noValidate>
           {state?.error && <Alert tone="error">{state.error}</Alert>}

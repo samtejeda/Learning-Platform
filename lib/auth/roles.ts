@@ -33,7 +33,12 @@ export function homeForRole(role: Role): "/dashboard" | "/professor" | "/admin" 
   }
 }
 
-const AUTH_ENTRY_PATHS = new Set(["/login", "/register", "/reset-password"]);
+const AUTH_ENTRY_PATHS = new Set([
+  "/login",
+  "/register",
+  "/reset-password",
+  "/resend-confirmation",
+]);
 
 /** Pages a signed-out visitor may load. */
 export function isPublicPath(pathname: string): boolean {

@@ -80,14 +80,14 @@ Route groups don't appear in URLs, so each role's surface gets a distinct URL pr
 | Student | `/dashboard`, `/courses/[courseId]`, … | `app/(student)/` |
 | Professor (and admin) | `/professor`, `/professor/courses/[courseId]`, … | `app/(professor)/professor/` |
 | Admin | `/admin`, … | `app/(admin)/admin/` |
-| Signed out | `/login`, `/register`, `/reset-password` | `app/(auth)/` |
+| Signed out | `/login`, `/register`, `/reset-password`, `/resend-confirmation` | `app/(auth)/` |
 | Recovery session | `/update-password` | `app/(auth)/` |
 
 ```
 /
 ├── app/
 │   ├── page.tsx                # "/" redirects: signed-out → /login, else role home
-│   ├── (auth)/                 # login, register, reset-password, update-password
+│   ├── (auth)/                 # login, register, reset-password, resend-confirmation, update-password
 │   ├── (student)/              # layout: requireUser()
 │   │   ├── dashboard/
 │   │   └── courses/[courseId]/

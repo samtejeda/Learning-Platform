@@ -15,6 +15,7 @@ export type Scope =
   | "otp_send"
   | "otp_verify"
   | "reset_request"
+  | "resend_confirmation"
   | "invite"
   | "lecture_progress";
 
@@ -45,6 +46,12 @@ export const RATE_LIMITS: Record<Scope, Policy> = {
     perIdentifier: { limit: 5, windowSeconds: 10 * MIN },
   },
   reset_request: {
+    perIp: { limit: 10, windowSeconds: HOUR },
+    perIdentifier: { limit: 3, windowSeconds: HOUR },
+  },
+  // Same shape as reset_request: email-targeted, must not leak whether the
+  // account exists, so the same conservative limits apply.
+  resend_confirmation: {
     perIp: { limit: 10, windowSeconds: HOUR },
     perIdentifier: { limit: 3, windowSeconds: HOUR },
   },
