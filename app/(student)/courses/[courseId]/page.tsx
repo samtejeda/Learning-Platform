@@ -34,14 +34,23 @@ export default async function StudentCoursePage({
         {course.description && <p className="text-slate-700 mt-3">{course.description}</p>}
       </div>
 
+      {/* Sections render only when they have content (CLAUDE.md). */}
       {course.lectures.length > 0 && (
         <Card>
           <h2 className="font-semibold text-slate-900 mb-3">Lectures</h2>
           <ol className="divide-y divide-slate-100">
             {course.lectures.map((lecture, i) => (
-              <li key={lecture.id} className="py-2.5 text-sm text-slate-700 flex gap-3">
+              <li key={lecture.id} className="py-2.5 text-sm flex gap-3 items-center">
                 <span className="text-slate-400 w-6 shrink-0 tabular-nums">{i + 1}.</span>
-                <span>{lecture.title}</span>
+                <Link
+                  href={`/courses/${course.id}/lectures/${lecture.id}`}
+                  className="flex-1 text-slate-700 hover:text-slate-900 hover:underline underline-offset-2"
+                >
+                  {lecture.title}
+                </Link>
+                <span className="text-xs tabular-nums text-slate-500">
+                  {lecture.completed ? "Completed" : `${lecture.percentWatched}%`}
+                </span>
               </li>
             ))}
           </ol>

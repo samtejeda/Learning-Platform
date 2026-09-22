@@ -51,12 +51,19 @@ export async function checkRateLimit(opts: {
       })
       .returning({ count: rateLimitBuckets.count, windowStart: rateLimitBuckets.windowStart });
 
-    // Opportunistic sweep of stale buckets (~1% of calls). Nothing waits on it.
+    // Opportunistic sweep of stale buckets (~1% of calls). Awaited on
+    // purpose: a fire-and-forget drizzle query never executed and pinned the
+    // connection (found 2026-09-18 via lib/rate-limit/sweep.integration.test.ts),
+    // which froze the single-connection dev pool. The DELETE touches a
+    // handful of rows and costs a few ms.
     if (Math.random() < 0.01) {
-      void db
-        .delete(rateLimitBuckets)
-        .where(sql`${rateLimitBuckets.windowStart} < now() - interval '1 day'`)
-        .catch((err) => console.error("[rate-limit] sweep failed", err));
+      try {
+        await db
+          .delete(rateLimitBuckets)
+          .where(sql`${rateLimitBuckets.windowStart} < now() - interval '1 day'`);
+      } catch (err) {
+        console.error("[rate-limit] sweep failed", err);
+      }
     }
 
     return evaluate(opts.window, row.count, row.windowStart);
@@ -72,10 +79,11 @@ export async function getClientIp(): Promise<string> {
 }
 
 /**
- * Convenience for auth actions: apply a scope's per-IP and per-identifier
- * limits in one call. Returns null when allowed, or a user-facing message.
+ * Apply a scope's per-IP and per-identifier limits in one call. Returns
+ * null when allowed, or a user-facing message. For authenticated scopes the
+ * identifier is the acting user's id.
  */
-export async function enforceAuthRateLimit(
+export async function enforceRateLimit(
   scope: Scope,
   identifier: string | null,
 ): Promise<string | null> {
@@ -96,3 +104,6 @@ export async function enforceAuthRateLimit(
   }
   return null;
 }
+
+/** Original name, kept for the auth actions. Same function. */
+export const enforceAuthRateLimit = enforceRateLimit;
