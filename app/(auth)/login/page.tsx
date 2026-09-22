@@ -115,6 +115,8 @@ function EmailForm({ next }: { next?: string }) {
       <SubmitButton pendingLabel="Signing in…">Sign in</SubmitButton>
       <p className="text-center text-sm text-muted">
         <TextLink href="/reset-password">Forgot password?</TextLink>
+        {" · "}
+        <TextLink href="/resend-confirmation">Didn&apos;t get a confirmation email?</TextLink>
       </p>
     </form>
   );

@@ -63,6 +63,10 @@ export const resetRequestSchema = z.object({
   email: emailSchema,
 });
 
+export const resendConfirmationSchema = z.object({
+  email: emailSchema,
+});
+
 export const updatePasswordSchema = z
   .object({
     password: passwordSchema,

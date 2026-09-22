@@ -7,6 +7,7 @@ import { logger } from "@/lib/logger";
 import { enforceAuthRateLimit } from "@/lib/rate-limit";
 import { parseFormData, parseObject, type ActionState } from "@/lib/validation/form";
 import {
+  resendConfirmationSchema,
   resetRequestSchema,
   sendOtpSchema,
   signInSchema,
@@ -149,6 +150,39 @@ export async function signUp(_prev: ActionState, formData: FormData): Promise<Ac
   }
 
   return { success: SIGN_UP_SUCCESS };
+}
+
+export async function resendConfirmation(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = parseFormData(resendConfirmationSchema, formData);
+  if (!parsed.ok) return parsed.state;
+  const { email } = parsed.data;
+
+  const limited = await enforceAuthRateLimit("resend_confirmation", email);
+  if (limited) return { error: limited, values: { email } };
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.resend({
+    type: "signup",
+    email,
+    options: {
+      emailRedirectTo: `${getSiteUrl()}/api/auth/callback?next=${encodeURIComponent("/dashboard")}`,
+    },
+  });
+
+  // Supabase's own send limit is worth surfacing distinctly (it's a system
+  // state, not account-specific, so naming it doesn't leak anything). Every
+  // other outcome — unknown email, already-confirmed account, a genuine
+  // resend — gets the identical message: an unconfirmed sign-up is the only
+  // case that legitimately needs this, and it can't be distinguished from
+  // "no account" or "already confirmed" without leaking which one it was.
+  if (error?.code === "over_email_send_rate_limit") {
+    return { error: "Too many attempts. Please try again later.", values: { email } };
+  }
+  if (error) logger.error("auth.resend_confirmation_failed", { err: error });
+  return { success: "If that email needs confirming, a new link is on its way." };
 }
 
 export async function requestPasswordReset(
