@@ -80,14 +80,14 @@ Scored honestly. **Pending** = built and verified as far as I can from here, but
 - Sensitive data: **pass** (redaction + scrubbing unit-tested and mutation-tested; real-SDK test; real-Chrome test shows a scrubbed event with no user/headers/query/IP). Residual: Vercel's own request logs are outside our control and may record the path of `/api/auth/callback?code=…` (single-use code).
 - Top 3: (1) exercise a real error in production to see an actual captured event end to end; (2) add `reportClientError` to the frontend's `ErrorState`; (3) narrow the "any new issue" rule back to high-priority-only once real usage volume makes the overlap noisy.
 
-**availability-and-recovery.md: 4 pass / 1 partial / 1 pending Sam (re-scored 2026-09-22)**
+**availability-and-recovery.md: 6/6 pass (re-scored 2026-09-22, after backups + rollback both verified live)**
 - Uptime monitoring: **pass** — UptimeRobot checking `/api/health` every 5 min, status up, Sam's email already attached as the alert contact.
 - Health checks: **pass** (`/api/health`, verified live: 200 healthy, 503 with `database:"fail"` when pointed at a dead DB; timeouts + 10s cache). Blind spots: Twilio, Storage, Sentry.
-- Database backups (automated, off-site): **pending Sam** (workflow + scripts verified locally end to end; needs the age key, 2 GitHub settings, and one manual run — the "needs merge to main" blocker is gone, the resilience branch is long since merged).
+- Database backups (automated, off-site): **pass** (2026-09-22) — age keypair generated, `BACKUP_AGE_PUBLIC_KEY` repo variable and `BACKUP_DATABASE_URL` repo secret set (session-pooler URL, matching `DIRECT_URL`), workflow triggered manually and completed successfully (57s, encrypted artifact `db-backup-<run-id>` produced, 30-day retention). Nightly cron (07:17 UTC) now runs unattended. Private key is on Sam's machine pending move to a password manager + a second copy — not yet confirmed done.
 - Backup testing: **pass** (restored twice into a Supabase-flavoured Postgres, including the decrypted artifact; mutation-tested). Caveat: not into a *real* fresh Supabase project (runbook drill).
-- Deployment rollback: **partial** (Vercel capability + documented + migration rule; untested — Instant Rollback still hasn't been run once).
+- Deployment rollback: **pass** (2026-09-22) — Instant Rollback exercised for real on the live production alias: rolled back to the prior deployment, verified the alias actually served it, promoted latest back. **Found a real Hobby-plan constraint**: rollback is limited to only the single immediately-previous production deployment (`vercel rollback` to anything older fails with "To rollback further than the previous production deployment, upgrade to pro. (402)") — worth knowing before relying on it for anything but the most recent bad deploy.
 - Recovery documentation: **pass** (`docs/RUNBOOK.md`).
-- Top 3: (1) backup key + 2 GitHub secrets + one manual workflow run (Sam); (2) run Instant Rollback once on the live deployment; (3) real-project restore drill and a decision on backing up Storage videos.
+- Top 3: (1) ~~backup key + 2 GitHub secrets + one manual workflow run~~ — done 2026-09-22, workflow ran successfully, artifact produced; (2) ~~run Instant Rollback once~~ — done 2026-09-22, see above; (3) real-project restore drill and a decision on backing up Storage videos.
 
 **load-balancing-and-scaling.md: 2 pass / 2 platform-managed (unverified until deployed) / 1 partial / 1 deliberate fail**
 - Load balancing, auto-scaling: **platform-managed, unverifiable** (Vercel; nothing to configure, nothing deployed to observe).
@@ -298,6 +298,8 @@ Scored honestly — items that can't be verified until the DB is reachable are m
 - Billing visibility: **open** — dashboard alerts for Sam (Vercel, Supabase, Twilio).
 
 **Top 3 to close next:** (1) Sam creates the Vercel project from the checklist, (2) run Instant Rollback once, (3) billing alerts.
+
+**Superseded 2026-09-22** — this whole platform-ops audit block predates the Vercel project existing at all. Current state: Vercel project created and deployed, deployment pipeline and rollback readiness both now pass (Instant Rollback exercised live, see the availability-and-recovery.md re-score above), billing visibility addressed (see the Vercel/Supabase/Sentry Pro-sizing decision above). `cloud-and-compute.md` has its own fresh re-score above too (4/6 pass, 2/6 partial) — the `2/6 pass, 2 partial, 1 n/a, 1 open` score directly above this note is stale, left as historical record rather than edited in place.
 
 ## Frontend audit self-check (2026-09-21, after F3c; `audit-prompts/frontend.md` re-read from disk — still the same 6 items)
 
