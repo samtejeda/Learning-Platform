@@ -34,7 +34,7 @@ This project is being built with a multi-agent, minimal-check-in workflow. See:
 
 - **Student** — watches lectures, submits assignments, takes exams, posts in forums
 - **Professor** — creates all course content, grades assignments and exams, views student progress
-- **Admin** — platform-level management (scope TBD)
+- **Admin** — manages professors and students platform-wide, through the app itself, not the database. Exact feature set TBD, but the requirement is fixed: this app is meant to be sold or donated as an independent, self-hosted template for other institutions, each running their own deployment with no ongoing support from Sam — so admin must be real in-app tooling (role management, account oversight) before any redistribution, not a permanent "ask a developer to run SQL" situation. For Sam's own church deployment, SQL-based role promotion during build-out is fine and isn't blocking other work — see `PROGRESS.md`.
 
 All role checks happen **server-side only**. Never trust the client for permission decisions.
 
@@ -172,8 +172,6 @@ pnpm build        # production build
 pnpm lint         # eslint
 pnpm typecheck    # tsc --noEmit
 pnpm test         # vitest (unit tests under lib/**)
-pnpm test:integration  # lib/**/*.integration.test.ts against the DB in .env.local (seeds dev-only @example.test accounts; never point at prod)
-pnpm test:http    # test/http/*.http.test.ts against a RUNNING server (pnpm build && pnpm start -p 3111): real sessions, proxy, Storage
 pnpm build:vercel # Vercel's build command: migrate (production only) then build
 pnpm db:generate  # diff lib/db/schema.ts against drizzle/meta and write a new migration
 pnpm db:migrate   # apply pending migrations in drizzle/ (run before every deploy)

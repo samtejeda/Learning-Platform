@@ -2,7 +2,7 @@
 name: platform-ops-builder
 description: Builds and maintains hosting/deployment, cloud/compute config, and CI/CD + version control setup. Use for Vercel config, environment setup, and pipeline work.
 model: fable
-tools: Read, Write, Edit, Bash, Grep, Glob
+tools: Read, Write, Edit, Bash, Grep, Glob, AskUserQuestion
 ---
 **Global rules (every build agent follows these — see ORCHESTRATION.md's "Working method" for full context):**
 - Plan Mode first for any new feature area — propose a plan, wait for Sam's approval, then build.

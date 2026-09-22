@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Shallow clone: the repo's first commit accidentally included
+      # node_modules/, so full history is ~100 MB we never need in CI.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # pnpm version comes from "packageManager" in package.json.
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # Unit tests only. `test:integration` needs a real database and seeds
+      # accounts; it must never run in CI against a shared project.
+      - name: Unit tests
+        run: pnpm test
+
+      # drizzle-kit check is offline: it only validates drizzle/ + meta/
+      # consistency. The URL is a placeholder; nothing connects.
+      - name: Migration consistency
+        run: pnpm db:check
+        env:
+          DIRECT_URL: postgresql://user:pass@localhost:5432/db
+
+      # Placeholder env, not secrets. `next build` evaluates modules while
+      # collecting page data (lib/db/index.ts throws without DATABASE_URL),
+      # but nothing opens a connection at build time. Real values live in
+      # Vercel's environment settings.
+      - name: Build
+        run: pnpm build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
+          NEXT_PUBLIC_SITE_URL: http://localhost:3000
+          DATABASE_URL: postgresql://user:pass@localhost:5432/db
