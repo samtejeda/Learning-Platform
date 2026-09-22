@@ -94,7 +94,39 @@ export const enrollments = pgTable(
   (t) => [uniqueIndex("enrollments_student_course_idx").on(t.studentId, t.courseId)]
 ).enableRLS();
 
+// ─── Course invitations ───────────────────────────────────────────────────────
+// A professor enrolls students by email. If an account with that email
+// already exists the enrollment is created immediately (app code, in the
+// same transaction) and the invitation is marked accepted. Otherwise the
+// row waits here and the `on_public_user_email_set` trigger
+// (drizzle/0006) turns it into an enrollment the moment a matching
+// account appears. Emails are stored lowercased.
+
+export const courseInvitations = pgTable(
+  "course_invitations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    courseId: uuid("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    invitedBy: uuid("invited_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("course_invitations_course_email_idx").on(t.courseId, t.email),
+    index("course_invitations_email_idx").on(t.email),
+  ]
+).enableRLS();
+
 // ─── Lectures ─────────────────────────────────────────────────────────────────
+// Lifecycle: row is created with a server-generated storage path before the
+// browser uploads (pending upload) → `videoUploadedAt` is set only after the
+// server confirms the object exists (draft) → `publishedAt` set by the
+// professor (visible to students). Students never see unpublished rows.
 
 export const lectures = pgTable(
   "lectures",
@@ -104,8 +136,15 @@ export const lectures = pgTable(
       .notNull()
       .references(() => courses.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
-    // Supabase Storage path — served via signed URL at request time
+    description: text("description"),
+    // Supabase Storage path in the private `lectures` bucket — served via a
+    // short-lived signed URL at request time, never a public URL.
     videoStoragePath: text("video_storage_path").notNull(),
+    // Set at finalize from the professor's browser (video metadata). Used as
+    // the denominator for completion; students can't influence it.
+    durationSeconds: real("duration_seconds"),
+    videoUploadedAt: timestamp("video_uploaded_at", { withTimezone: true }),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
     order: integer("order").notNull().default(0),
     // Percentage (0–100) of video that must be watched to mark complete.
     // Default is 95 per spec.
@@ -136,9 +175,18 @@ export const lectureProgress = pgTable(
     lectureId: uuid("lecture_id")
       .notNull()
       .references(() => lectures.id, { onDelete: "cascade" }),
+    // Union of genuinely-watched ranges, as merged [start, end] pairs in
+    // seconds. Maintained by lib/progress/policy.ts; the client only ever
+    // submits short segments, which the server merges and bounds by
+    // wall-clock time so watched time can't be fabricated.
+    watchedIntervals: jsonb("watched_intervals").notNull().default([]),
+    // Total coverage of watchedIntervals (denormalised for listing).
     watchedSeconds: real("watched_seconds").notNull().default(0),
+    // Where to resume playback.
+    lastPositionSeconds: real("last_position_seconds").notNull().default(0),
     // Server-validated: only true when watched_seconds/duration >= completionThreshold
     completed: boolean("completed").notNull().default(false),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
     lastUpdated: timestamp("last_updated", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -367,6 +415,7 @@ export const usersRelations = relations(users, ({ many }) => ({
 export const coursesRelations = relations(courses, ({ one, many }) => ({
   professor: one(users, { fields: [courses.professorId], references: [users.id] }),
   enrollments: many(enrollments),
+  invitations: many(courseInvitations),
   lectures: many(lectures),
   exams: many(exams),
   assignments: many(assignments),
@@ -376,6 +425,11 @@ export const coursesRelations = relations(courses, ({ one, many }) => ({
 export const enrollmentsRelations = relations(enrollments, ({ one }) => ({
   student: one(users, { fields: [enrollments.studentId], references: [users.id] }),
   course: one(courses, { fields: [enrollments.courseId], references: [courses.id] }),
+}));
+
+export const courseInvitationsRelations = relations(courseInvitations, ({ one }) => ({
+  course: one(courses, { fields: [courseInvitations.courseId], references: [courses.id] }),
+  inviter: one(users, { fields: [courseInvitations.invitedBy], references: [users.id] }),
 }));
 
 export const lecturesRelations = relations(lectures, ({ one, many }) => ({

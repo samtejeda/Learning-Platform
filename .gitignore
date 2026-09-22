@@ -45,3 +45,7 @@ Thumbs.db
 backups/
 *.dump
 *.tar.age
+
+# Frontend audit screenshots (scripts/screenshots.mjs)
+.screenshots/
+.auth/

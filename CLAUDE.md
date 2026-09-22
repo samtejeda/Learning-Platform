@@ -95,16 +95,21 @@ Route groups don't appear in URLs, so each role's surface gets a distinct URL pr
 │   │   └── courses/[courseId]/
 │   ├── (admin)/admin/          # layout: requireRole("admin")
 │   └── api/                    # Route handlers — only for non-form traffic (see API.md)
-│       └── auth/callback/      # PKCE code exchange for email links
+│       ├── auth/callback/      # PKCE code exchange for email links
+│       └── lectures/[lectureId]/{stream,progress}/  # signed video URL; server-validated watch progress
 ├── components/
 │   ├── ui/                     # Button, SubmitButton, Input, Field, Card, Alert
 │   ├── app-shell.tsx           # Authenticated chrome (nav + sign-out)
-│   ├── video-player/           # (next phase) custom anti-scrub player
+│   ├── course-form.tsx, roster-manager.tsx, lecture-upload-form.tsx, lecture-list-manager.tsx  # plain professor UI
+│   ├── video-player/           # lecture-player.tsx: no native controls, seeks only into server-accepted ranges
 │   ├── exam-builder/           # (next phase)
 │   └── forum/                  # (next phase)
 ├── lib/
 │   ├── db/                     # Drizzle schema + client
 │   ├── data/                   # Query functions; each takes the acting user id and encodes permission in the query
+│   ├── courses/, enrollments/, lectures/  # actions.ts per domain (server actions)
+│   ├── progress/               # policy.ts: pure anti-scrub rules (merge intervals, wall-clock bound, completion)
+│   ├── storage/                # Service-role Supabase Storage client (signed URLs only) + pure path/MIME helpers
 │   ├── supabase/               # Supabase client helpers (server / client)
 │   ├── auth/                   # actions.ts (server actions), session.ts (getCurrentUser/require*/assert*), roles.ts (pure path/role rules)
 │   ├── validation/             # zod schemas + parseFormData
@@ -113,7 +118,8 @@ Route groups don't appear in URLs, so each role's surface gets a distinct URL pr
 │   ├── logging/                # Pure redaction + log-line formatting (shared with Sentry scrubbing)
 │   ├── health/                 # Dependency probes behind GET /api/health
 │   ├── sentry/                 # Shared init options, event/breadcrumb scrubbing, client-error reporter
-│   └── api/                    # respond.ts: JSON error helpers for route handlers
+│   └── api/                    # respond.ts: JSON error helpers + same-origin guard for route handlers
+├── test/                       # Integration-test harness (stubs, dev-only seed accounts) — see pnpm test:integration
 ├── scripts/backup/             # Encrypted dump + restore-test (run by .github/workflows/backup.yml)
 ├── docs/RUNBOOK.md             # Failure scenarios, rollback, backup drills
 ├── drizzle/                    # Versioned SQL migrations + meta (committed)
@@ -127,7 +133,9 @@ Route groups don't appear in URLs, so each role's surface gets a distinct URL pr
 3. **Every page, server action, and route handler** calls `requireUser`/`requireRole` (pages) or `assertUser`/`assertRole` (actions/handlers) itself, and every `lib/data/*` function takes the acting user's id and enforces enrollment/ownership inside the query. Layouts don't re-run on sibling navigation, so gate 2 alone is never enough.
 
 ### Data access model
-All reads and writes go through Drizzle server-side. Every table has RLS enabled with no policies and PostgREST grants revoked (`drizzle/0001`, `0002`), so the Supabase REST API with the anon key is a wall, not a data path. The `public.users` row is created by a trigger on `auth.users` (`drizzle/0003`); app code never inserts it. `users.role` is mirrored into the JWT's `app_metadata.role` by trigger.
+All reads and writes go through Drizzle server-side. Every table has RLS enabled with no policies and PostgREST grants revoked (`drizzle/0001`, `0002`), so the Supabase REST API with the anon key is a wall, not a data path. The `public.users` row is created by a trigger on `auth.users` (`drizzle/0003`); app code never inserts it. `users.role` is mirrored into the JWT's `app_metadata.role` by trigger. Course invitations become enrollments by trigger when a matching account appears (`drizzle/0006`).
+
+**Storage:** the `lectures` bucket is private with no storage policies. `lib/storage/` holds the only use of `SUPABASE_SERVICE_ROLE_KEY`, and uses it exclusively to sign upload/stream URLs, check that an uploaded object exists, and delete objects — after the calling action/handler has verified ownership or enrollment. It is never used for database queries. Browsers upload directly to Storage with a one-time signed token for a server-chosen path; nothing large passes through Next.js.
 
 ## API Security Rules (non-negotiable)
 
@@ -169,7 +177,9 @@ Primary target is phone users. Design and test mobile layouts first. Desktop is 
 pnpm dev          # start dev server
 pnpm build        # production build
 pnpm lint         # eslint
+pnpm typecheck    # tsc --noEmit
 pnpm test         # vitest (unit tests under lib/**)
+pnpm build:vercel # Vercel's build command: migrate (production only) then build
 pnpm db:generate  # diff lib/db/schema.ts against drizzle/meta and write a new migration
 pnpm db:migrate   # apply pending migrations in drizzle/ (run before every deploy)
 pnpm db:check     # verify drizzle/ migrations + snapshots are consistent
@@ -177,3 +187,8 @@ pnpm db:studio    # open Drizzle Studio
 ```
 
 Migrations are versioned in `drizzle/` and committed (including `drizzle/meta/`). There is deliberately no `db:push` script: push applies schema changes without recording them in the journal and desyncs the DB from `drizzle/`. Schema change workflow: edit `lib/db/schema.ts` → `pnpm db:generate` → review the SQL → commit → `pnpm db:migrate`. For SQL that Drizzle can't model (grants, triggers, functions) use `pnpm drizzle-kit generate --custom --name=<slug>` and write the SQL by hand.
+
+### CI and deployment
+- **CI** (`.github/workflows/ci.yml`): every PR and push to `main` runs lint, typecheck, unit tests, `db:check`, and `build` (placeholder env, no secrets). `main` is branch-protected on the `checks` job.
+- **Deploy**: Vercel, connected to the GitHub repo. Merge to `main` → production; every PR → preview URL. `vercel.json` sets the build command to `pnpm build:vercel`, which applies pending migrations **only when `VERCEL_ENV=production`** (needs `DIRECT_URL` in Production scope; never set it in Preview), then builds. A failed migration fails the deploy and the previous one stays live.
+- **Rollback**: Vercel → Deployments → previous deployment → Instant Rollback. Migrations are forward-only; a rollback reverts code, not schema, so write migrations backward-compatible with the previous deploy.

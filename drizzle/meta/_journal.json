@@ -36,6 +36,20 @@
       "when": 1789670288755,
       "tag": "0004_rate_limit_buckets",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789757431286,
+      "tag": "0005_invitations_lecture_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789757453438,
+      "tag": "0006_invitation_trigger_lectures_bucket",
+      "breakpoints": true
     }
   ]
 }

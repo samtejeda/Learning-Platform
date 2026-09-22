@@ -1,22 +1,19 @@
 "use client";
 
 import { useActionState } from "react";
-import Link from "next/link";
 import { signUp } from "@/lib/auth/actions";
 import type { ActionState } from "@/lib/validation/form";
-import { Card } from "@/components/ui/card";
+import { AuthCard } from "@/components/auth-card";
 import { Field } from "@/components/ui/field";
 import { Alert } from "@/components/ui/alert";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { TextLink } from "@/components/ui/text-link";
 
 export default function RegisterPage() {
   const [state, action] = useActionState<ActionState, FormData>(signUp, null);
 
   return (
-    <Card>
-      <h1 className="text-2xl font-semibold text-slate-900 mb-1">Create account</h1>
-      <p className="text-sm text-slate-500 mb-6">Sign up as a student</p>
-
+    <AuthCard title="Create account" lead="Sign up as a student">
       {state?.success ? (
         <Alert tone="success">{state.success}</Alert>
       ) : (
@@ -67,12 +64,9 @@ export default function RegisterPage() {
         </form>
       )}
 
-      <p className="mt-6 text-center text-sm text-slate-500">
-        Already have an account?{" "}
-        <Link href="/login" className="font-medium text-slate-900 underline underline-offset-2">
-          Sign in
-        </Link>
+      <p className="mt-6 text-center text-sm text-muted">
+        Already have an account? <TextLink href="/login">Sign in</TextLink>
       </p>
-    </Card>
+    </AuthCard>
   );
 }

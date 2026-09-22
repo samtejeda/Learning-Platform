@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canAccessPath,
   homeForRole,
+  isApiPath,
   isAuthEntryPath,
   isPublicPath,
   isRole,
@@ -60,6 +61,16 @@ describe("isPublicPath / isAuthEntryPath", () => {
   it("auth-entry pages exclude the API", () => {
     expect(isAuthEntryPath("/login")).toBe(true);
     expect(isAuthEntryPath("/api/auth/callback")).toBe(false);
+  });
+});
+
+describe("isApiPath", () => {
+  it("matches only the /api tree", () => {
+    expect(isApiPath("/api/lectures/x/stream")).toBe(true);
+    expect(isApiPath("/api")).toBe(true);
+    expect(isApiPath("/apis")).toBe(false);
+    expect(isApiPath("/dashboard")).toBe(false);
+    expect(isApiPath("/courses/api/x")).toBe(false);
   });
 });
 

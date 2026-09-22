@@ -9,7 +9,14 @@ export type Policy = {
   perIdentifier: Window;
 };
 
-export type Scope = "login" | "signup" | "otp_send" | "otp_verify" | "reset_request";
+export type Scope =
+  | "login"
+  | "signup"
+  | "otp_send"
+  | "otp_verify"
+  | "reset_request"
+  | "invite"
+  | "lecture_progress";
 
 const MIN = 60;
 const HOUR = 3600;
@@ -40,6 +47,19 @@ export const RATE_LIMITS: Record<Scope, Policy> = {
   reset_request: {
     perIp: { limit: 10, windowSeconds: HOUR },
     perIdentifier: { limit: 3, windowSeconds: HOUR },
+  },
+  // Authenticated professor inviting students by email. Identifier is the
+  // acting user's id. Generous enough for a cohort, tight enough that the
+  // roster can't be used to enumerate accounts at speed.
+  invite: {
+    perIp: { limit: 60, windowSeconds: HOUR },
+    perIdentifier: { limit: 40, windowSeconds: HOUR },
+  },
+  // Video progress pings: the player sends one every ~10 s of playback plus
+  // pause/ended. Identifier is the student's id.
+  lecture_progress: {
+    perIp: { limit: 300, windowSeconds: MIN },
+    perIdentifier: { limit: 60, windowSeconds: MIN },
   },
 };
 

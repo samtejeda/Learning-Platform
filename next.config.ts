@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs/config";
+import { fileURLToPath } from "node:url";
 
 const isDev = process.env.NODE_ENV !== "production";
 
@@ -71,6 +72,9 @@ const nextConfig: NextConfig = {
     // transformations. Video/thumbnails come straight from Storage.
     formats: ["image/avif", "image/webp"],
   },
+  // Pin the workspace root to this directory. Without it Next walks up looking
+  // for lockfiles and, in a git worktree, can pick a parent directory.
+  turbopack: { root: fileURLToPath(new URL(".", import.meta.url)) },
   async headers() {
     return [
       { source: "/(.*)", headers: securityHeaders },
