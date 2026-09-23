@@ -37,6 +37,8 @@ export const questionTypeEnum = pgEnum("question_type", [
   "short_essay",
 ]);
 
+export const materialKindEnum = pgEnum("material_kind", ["file", "link"]);
+
 // ─── Users ────────────────────────────────────────────────────────────────────
 // Mirrors Supabase Auth's auth.users table — this is the public profile table.
 // The id must match the Supabase Auth user id exactly. Rows are created and
@@ -67,6 +69,12 @@ export const courses = pgTable("courses", {
   professorId: uuid("professor_id")
     .notNull()
     .references(() => users.id, { onDelete: "restrict" }),
+  // Syllabus is a 1:1 singleton per course (one PDF, no publish step — it's
+  // visible as soon as it's uploaded). Path is deterministic
+  // (courses/{id}/syllabus.pdf, see lib/storage/paths.ts) and re-uploads
+  // overwrite it in place, so this column is really just presence + when.
+  syllabusStoragePath: text("syllabus_storage_path"),
+  syllabusUploadedAt: timestamp("syllabus_uploaded_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -161,6 +169,48 @@ export const lectures = pgTable(
       .defaultNow(),
   },
   (t) => [index("lectures_course_order_idx").on(t.courseId, t.order)]
+).enableRLS();
+
+// ─── Course Materials ─────────────────────────────────────────────────────────
+// General course-level resources, not tied to a specific lecture: an
+// uploaded file (PDF/doc/image/video) or an external link. Mirrors the
+// lecture upload lifecycle (pending upload → uploaded → published) with a
+// draft/publish step, per Sam's decision — asymmetric with the syllabus on
+// purpose. Link-kind rows skip the upload step: uploadedAt is set at
+// creation, but they still start unpublished.
+
+export const courseMaterials = pgTable(
+  "course_materials",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    courseId: uuid("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    kind: materialKindEnum("kind").notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    // Supabase Storage path in the private `course-files` bucket. Set for
+    // kind='file' once uploaded; null for kind='link'.
+    storagePath: text("storage_path"),
+    // Recorded at finalize (file kind); drives the type icon client-side.
+    mimeType: text("mime_type"),
+    // External URL for kind='link'; http(s) only, validated, never fetched
+    // server-side (no SSRF surface — rendered as a plain outbound <a>).
+    url: text("url"),
+    order: integer("order").notNull().default(0),
+    // file kind: set at finalize, after the server confirms the object
+    // exists. link kind: set at creation. Publish is gated on this being
+    // set, same rule as lectures.videoUploadedAt.
+    uploadedAt: timestamp("uploaded_at", { withTimezone: true }),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("course_materials_course_order_idx").on(t.courseId, t.order)]
 ).enableRLS();
 
 // ─── Lecture Progress ─────────────────────────────────────────────────────────
@@ -417,6 +467,7 @@ export const coursesRelations = relations(courses, ({ one, many }) => ({
   enrollments: many(enrollments),
   invitations: many(courseInvitations),
   lectures: many(lectures),
+  materials: many(courseMaterials),
   exams: many(exams),
   assignments: many(assignments),
   forumPosts: many(forumPosts),
@@ -436,6 +487,10 @@ export const lecturesRelations = relations(lectures, ({ one, many }) => ({
   course: one(courses, { fields: [lectures.courseId], references: [courses.id] }),
   progress: many(lectureProgress),
   forumPosts: many(forumPosts),
+}));
+
+export const courseMaterialsRelations = relations(courseMaterials, ({ one }) => ({
+  course: one(courses, { fields: [courseMaterials.courseId], references: [courses.id] }),
 }));
 
 export const lectureProgressRelations = relations(lectureProgress, ({ one }) => ({
