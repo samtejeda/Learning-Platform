@@ -34,6 +34,10 @@ const csp = [
   "style-src 'self' 'unsafe-inline'",
   `img-src 'self' data: blob: ${supabaseOrigin}`.trim(),
   `media-src 'self' blob: ${supabaseOrigin}`.trim(),
+  // The syllabus viewer embeds a signed Supabase Storage PDF URL in an
+  // <iframe>; without this it falls back to default-src 'self' and would
+  // be blocked once the policy is enforced (still Report-Only for now).
+  `frame-src 'self' ${supabaseOrigin}`.trim(),
   `connect-src 'self' ${supabaseOrigin} ${supabaseWs} ${sentryOrigin}`.trim(),
   "font-src 'self' data:",
   "object-src 'none'",
