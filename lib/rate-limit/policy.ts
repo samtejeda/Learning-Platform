@@ -17,7 +17,8 @@ export type Scope =
   | "reset_request"
   | "resend_confirmation"
   | "invite"
-  | "lecture_progress";
+  | "lecture_progress"
+  | "course_file";
 
 const MIN = 60;
 const HOUR = 3600;
@@ -67,6 +68,13 @@ export const RATE_LIMITS: Record<Scope, Policy> = {
   lecture_progress: {
     perIp: { limit: 300, windowSeconds: MIN },
     perIdentifier: { limit: 60, windowSeconds: MIN },
+  },
+  // Signed URL for a syllabus PDF or a course material file — one fetch per
+  // open, not a continuous ping like lecture_progress, so a lower ceiling
+  // is plenty even for someone flipping through every item in a course.
+  course_file: {
+    perIp: { limit: 120, windowSeconds: MIN },
+    perIdentifier: { limit: 30, windowSeconds: MIN },
   },
 };
 

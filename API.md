@@ -30,6 +30,8 @@ Tests that back these conventions: `pnpm test` (pure logic), `pnpm test:integrat
 | `GET /api/health` | Public (uptime monitors have no session) | None needed: probe results are cached ~10s per instance, so dependency load is bounded regardless of callers | none | `200 {status:"ok"}` or `503 {status:"degraded", checks:{database, auth}}` (values `ok`/`fail`) | Checks Postgres (`select 1`) and Supabase Auth's health endpoint, 3s timeout each. URL comes from env, never request input. No versions, timings, hosts or error text. `Cache-Control: no-store`. Twilio has no direct probe (only reachable via Supabase Auth). |
 | `GET /api/lectures/[lectureId]/stream` | `assertUser` + `getLectureForViewer` (student: enrolled **and** published; owning professor/admin: any status) | `lecture_progress` / user id (60/min) + IP (300/min) | path id (`uuidSchema`) | `{ url, expiresAt }` (15-min signed URL), `Cache-Control: no-store` | Not-enrolled, unpublished, and unknown ids are all 404. 503 `storage_unavailable` if signing fails. |
 | `POST /api/lectures/[lectureId]/progress` | `isSameOrigin` (403) → `assertUser` → enrollment + published inside `recordProgress` | `lecture_progress` / user id + IP | JSON `progressSegmentSchema` `{ from, to, position? }` (strict; seconds) | `{ accepted, percent, completed, watchedSeconds, intervals, justCompleted }` | Server merges the segment into watched ranges under `lib/progress/policy.ts`: >20 s or malformed → 400; faster-than-wall-clock → 200 `{ accepted:false, reason:"too_fast" }` (ignored, not credited); no duration yet → 409. Row locked `FOR UPDATE` in a transaction. Professors previewing get 404 (no progress recorded). |
+| `GET /api/courses/[courseId]/syllabus` | `assertUser` + `getSyllabusForViewer` (student: enrolled **and** a syllabus exists; owning professor/admin: any time one exists) | `course_file` / user id (30/min) + IP (120/min) | path id (`uuidSchema`) | `{ url, expiresAt }` (30-min signed URL), `Cache-Control: no-store` | Not-enrolled, no-syllabus-yet, and unknown course ids are all 404. 503 `storage_unavailable` if signing fails. |
+| `GET /api/course-materials/[materialId]` | `assertUser` + `getMaterialForViewer` (student: enrolled **and** published **and** kind='file'; owning professor/admin: any status, kind='file' only) | `course_file` / user id + IP | path id (`uuidSchema`) | `{ url, expiresAt }` (30-min signed URL), `Cache-Control: no-store` | Not-enrolled, unpublished, unknown, and **link-kind** materials are all 404 — a link has no server object; its `url` is already in the page data and rendered as a plain outbound `<a>`, never proxied or fetched server-side (no SSRF surface). 503 `storage_unavailable` if signing fails. |
 
 ## Server actions (`lib/auth/actions.ts`)
 
@@ -77,6 +79,30 @@ Upload flow: **1** `createLecture` (row + one-time signed token for a *server-ch
 | `reorderLectures(courseId, input)` | owner of course | `reorderLecturesSchema` (unique uuids, ≤ 500) | `ActionState` | The list must cover exactly the course's lectures; applied in one transaction or not at all. |
 | `deleteLecture(lectureId)` | owner | `uuidSchema` | `ActionState` | Removes the Storage object first (logged if that fails), then the row (progress cascades). |
 
+## Server actions (`lib/syllabus/actions.ts`)
+
+Upload flow: **1** `uploadSyllabus` (one-time signed token for the course's *fixed* `courses/<courseId>/syllabus.pdf` path — `upsert: true`, so a re-upload replaces it in place) → **2** browser `supabase.storage.from(bucket).uploadToSignedUrl(path, token, file)` → **3** `finalizeSyllabusUpload` (server confirms the object exists and is really a PDF, records it on the course row). **No publish step** — the course row is updated at finalize, so uploading makes it visible to students immediately (asymmetric with course materials on purpose, per Sam's decision). Every step re-validates the course id and re-checks ownership via `findOwnedCourse`. Not-owned = not-found = "Course not found."
+
+| Action | Auth | Schema | Returns | Notes |
+|---|---|---|---|---|
+| `uploadSyllabus(courseId, input)` | `assertRole("professor","admin")` + `findOwnedCourse` | `uploadSyllabusSchema` (`contentType` must be `application/pdf`, `sizeBytes` ≤ 2 GiB) | `SyllabusUploadTicket` `{ ok, courseId, bucket, path, token }` or `{ ok:false, error, fieldErrors? }` | Path is always `courses/<courseId>/syllabus.pdf`. |
+| `finalizeSyllabusUpload(courseId)` | owner | — | `ActionState` | `getCourseFileInfo(path)` must exist and be `application/pdf`; wrong content type is removed and refused. Records `syllabusStoragePath`/`syllabusUploadedAt` on the course row (visible to students from this point). |
+| `removeSyllabus(courseId)` | owner | — | `ActionState` | Removes the Storage object first (logged if that fails), then clears the course row's syllabus columns. |
+
+## Server actions (`lib/course-materials/actions.ts`)
+
+General course-level resources: a file (PDF/doc/image/video) or an external link. Both kinds get a draft/publish step (per Sam's decision — asymmetric with the syllabus on purpose). File kind mirrors the lecture upload flow: **1** `createMaterial({kind:"file",…})` (pending row + one-time signed token for a *server-chosen* path) → **2** browser upload → **3** `finalizeMaterialUpload` (server confirms the object exists with an allowlisted content type) → **4** `publishMaterial`. Link kind is complete in one step — `createMaterial({kind:"link",…})` sets the URL immediately — but still starts unpublished. Every step re-validates its ids and re-checks ownership via `getOwnedMaterial` (joins the course's `professor_id`; admins bypass). Not-owned = not-found = "Material not found." (course-level actions use "Course not found.").
+
+| Action | Auth | Schema | Returns | Notes |
+|---|---|---|---|---|
+| `createMaterial(courseId, input)` | `assertRole("professor","admin")` + `findOwnedCourse` | `createMaterialSchema`, discriminated on `kind`: `file` (`title`, `description`, `contentType` ∈ the course-files allowlist, `sizeBytes` ≤ 2 GiB) or `link` (`title`, `description`, `url` — http(s) only via `z.url({protocol:/^https?$/})`, never fetched server-side) | `MaterialActionResult` `{ ok:true, kind:"file", materialId, bucket, path, token }` \| `{ ok:true, kind:"link", materialId }` \| `{ ok:false, error, fieldErrors? }` | File path is `courses/<courseId>/materials/<materialId>/file.<ext>`. Link kind sets `uploadedAt` at creation (no upload step) but `publishedAt` stays null. |
+| `retryMaterialUpload(materialId)` | owner | `uuidSchema` | `MaterialActionResult` (file kind only) | Only while the material is `kind:"file"` and `uploadedAt` is null. |
+| `finalizeMaterialUpload(materialId, input)` | owner | `finalizeMaterialSchema` (empty — the server re-reads the object's content type itself) | `ActionState` | File kind only. `getCourseFileInfo(path)` must exist with an allowlisted content type; anything else is removed and refused. Records `mimeType`/`uploadedAt`. |
+| `publishMaterial(materialId)` / `unpublishMaterial(materialId)` | owner | `uuidSchema` | `ActionState` | Publish requires `uploaded_at` (enforced in the UPDATE's WHERE too) — true for both kinds once ready. |
+| `updateMaterial(materialId, prev, fd)` | owner | `materialFormSchema` | `redirect(course page)` | Title/description only, either kind. |
+| `reorderMaterials(courseId, input)` | owner of course | `reorderMaterialsSchema` (unique uuids, ≤ 500) | `ActionState` | The list must cover exactly the course's materials; applied in one transaction or not at all. |
+| `deleteMaterial(materialId)` | owner | `uuidSchema` | `ActionState` | Removes the Storage object first for file kind (logged if that fails), then the row. Link kind never touches Storage. |
+
 ## Pages with data access (for completeness; not APIs)
 
 Pages are gated three times: proxy prefix rule → route-group layout (`requireUser`/`requireRole`) → the page itself, plus the query. See CLAUDE.md "Authorization chain".
@@ -85,13 +111,14 @@ Pages are gated three times: proxy prefix rule → route-group layout (`requireU
 |---|---|---|
 | `/` | — | redirects by role or to `/login` |
 | `/dashboard` | any signed-in user | `listEnrolledCourses(userId)` |
-| `/courses/[courseId]` | any signed-in user | `getCourseForStudent(courseId, userId)` (enrollment; 404 otherwise; **published** lectures only, with the student's own progress) |
+| `/courses/[courseId]` | any signed-in user | `getCourseForStudent(courseId, userId)` (enrollment; 404 otherwise; **published** lectures/materials only, with the student's own lecture progress; `hasSyllabus` boolean, never the storage path). Renders `components/syllabus-viewer.tsx` and `components/course-materials-list.tsx`, which call the two route handlers below. |
 | `/courses/[courseId]/lectures/[lectureId]` | any signed-in user | `getLectureForViewer(lectureId, actor)` (enrolled + published, or course owner preview; lecture must belong to `courseId`; 404 otherwise). Renders `components/video-player/lecture-player.tsx`, which calls the two `/api/lectures/*` handlers. |
 | `/professor` | professor, admin | `listTaughtCourses(userId)` / admin: `listAllCourses()` |
 | `/professor/courses/new` | professor, admin | — (form → `createCourse`) |
-| `/professor/courses/[courseId]` | professor, admin | `getCourseForProfessor(courseId, actor)` (ownership; 404 otherwise; all lectures with status + roster) |
+| `/professor/courses/[courseId]` | professor, admin | `getCourseForProfessor(courseId, actor)` (ownership; 404 otherwise; all lectures/materials with status + roster + `syllabusUploadedAt`) |
 | `/professor/courses/[courseId]/edit` | professor, admin | `getCourseForProfessor` (form → `updateCourse`) |
 | `/professor/lectures/[lectureId]/edit` | professor, admin | `getOwnedLecture(lectureId, actor)` (ownership via course join; form → `updateLecture`) |
+| `/professor/materials/[materialId]/edit` | professor, admin | `getOwnedMaterial(materialId, actor)` (ownership via course join; form → `updateMaterial`) |
 | `/admin` | admin | placeholder |
 
 ## Environment variables
@@ -103,7 +130,7 @@ Pages are gated three times: proxy prefix rule → route-group layout (`requireU
 | `NEXT_PUBLIC_SITE_URL` | `lib/env.ts` for email links | yes in production |
 | `DATABASE_URL` | Drizzle at runtime (transaction pooler, 6543) | yes |
 | `DIRECT_URL` | drizzle-kit only (session pooler, 5432) | for migrations |
-| `SUPABASE_SERVICE_ROLE_KEY` | `lib/storage` **only** — signed upload/stream URLs, object checks, deletes on the private `lectures` bucket | yes (lectures) |
+| `SUPABASE_SERVICE_ROLE_KEY` | `lib/storage` **only** — signed upload/stream URLs, object checks, deletes on the two private buckets (`lectures`, `course-files`) | yes (lectures, syllabus, course materials) |
 | `DB_POOL_MAX` | `lib/db/pool-config.ts`: connections held per app instance (1–20; default 5 in production, 1 in dev) | no |
 | `NEXT_PUBLIC_SENTRY_DSN` | Sentry SDKs (browser + server), CSP `connect-src` | no: unset means Sentry is a no-op |
 | `SENTRY_AUTH_TOKEN` | Build only (private source-map upload). Secret, never `NEXT_PUBLIC_` | no: unset skips upload |
@@ -124,3 +151,4 @@ The service-role key is server-only and is used exclusively for Storage (decisio
 | 0004 | `0004_rate_limit_buckets.sql` | Rate limit counters table |
 | 0005 | `0005_invitations_lecture_lifecycle.sql` | `course_invitations` table; lecture `description`/`duration_seconds`/`video_uploaded_at`/`published_at`; progress `watched_intervals`/`last_position_seconds`/`completed_at` |
 | 0006 | `0006_invitation_trigger_lectures_bucket.sql` | `on_public_user_email_set` trigger (invitation → enrollment on signup); private `lectures` Storage bucket with size cap + video MIME allowlist |
+| 0007 | `0007_syllabus_and_course_materials.sql` | `courses.syllabus_storage_path`/`syllabus_uploaded_at`; `course_materials` table + `material_kind` enum (`file`/`link`); private `course-files` Storage bucket with size cap + PDF/doc/image/video MIME allowlist |
