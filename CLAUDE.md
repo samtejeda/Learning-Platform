@@ -15,7 +15,7 @@ This project is being built with a multi-agent, minimal-check-in workflow. See:
 - `ORCHESTRATION.md` — the working method, priority order, model handoff, and the 6 named build agents
 - `PROGRESS.md` — current source of truth for what's done / in progress / next / open questions (read this before resuming work in a new session)
 - `audit-prompts/` — 13 pass/fail audit checklists (definition-of-done, not build instructions) each build agent re-reads from disk and scores its own work against regularly, not just once
-- `.claude/agents/` — the 6 build agent definitions
+- `.claude/agents/` — the 6 build agent definitions, plus `supervising-agent.md`: the non-building supervisor role (PR triage, conflict resolution, "what needs Sam" reporting, external-service setup, PROGRESS.md upkeep). To start or resume that role in any session: "Follow the instructions for the supervising agent in `.claude/agents/supervising-agent.md`."
 - `API.md` — inventory of every route handler and server action, plus the conventions they follow (update in the same commit as any new endpoint)
 
 ## Tech Stack
