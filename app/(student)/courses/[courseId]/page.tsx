@@ -11,6 +11,8 @@ import { ProgressBar } from "@/components/ui/progress-bar";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DataList, DataRowIndex } from "@/components/ui/data-list";
 import { formatTime } from "@/lib/video/format-time";
+import { SyllabusViewer } from "@/components/syllabus-viewer";
+import { CourseMaterialsList } from "@/components/course-materials-list";
 
 const paramsSchema = z.object({ courseId: z.uuid() });
 
@@ -31,6 +33,7 @@ export default async function StudentCoursePage({
 
   const total = course.lectures.length;
   const done = course.lectures.filter((l) => l.completed).length;
+  const hasAnyContent = total > 0 || course.hasSyllabus || course.materials.length > 0;
 
   return (
     <div className="space-y-6 sm:space-y-8">
@@ -43,10 +46,10 @@ export default async function StudentCoursePage({
 
       {/* Sections render only when they have content (CLAUDE.md). When the
           course has no content at all, say so instead of showing a blank page. */}
-      {total === 0 && (
+      {!hasAnyContent && (
         <EmptyState
           title="Nothing here yet."
-          description="Your professor hasn't published any lectures for this course. Check back soon."
+          description="Your professor hasn't published anything for this course yet. Check back soon."
         />
       )}
       {total > 0 && (
@@ -92,6 +95,24 @@ export default async function StudentCoursePage({
               </li>
             ))}
           </DataList>
+        </Card>
+      )}
+
+      {course.hasSyllabus && (
+        <Card>
+          <CardTitle>Syllabus</CardTitle>
+          <div className="mt-4">
+            <SyllabusViewer courseId={course.id} />
+          </div>
+        </Card>
+      )}
+
+      {course.materials.length > 0 && (
+        <Card>
+          <CardTitle>Course materials</CardTitle>
+          <div className="mt-4">
+            <CourseMaterialsList materials={course.materials} />
+          </div>
         </Card>
       )}
     </div>

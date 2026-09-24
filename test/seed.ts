@@ -56,5 +56,5 @@ export async function resetSeedData() {
   const ids = Object.values(SEED).map((u) => u.id);
   await db.execute(sql`DELETE FROM public.courses WHERE professor_id IN ${ids}`);
   await db.execute(sql`DELETE FROM public.course_invitations WHERE email LIKE '%@example.test'`);
-  await db.execute(sql`DELETE FROM public.rate_limit_buckets WHERE key LIKE 'invite:%' OR key LIKE 'lecture_progress:%'`);
+  await db.execute(sql`DELETE FROM public.rate_limit_buckets WHERE key LIKE 'invite:%' OR key LIKE 'lecture_progress:%' OR key LIKE 'course_file:%'`);
 }

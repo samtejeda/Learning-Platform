@@ -1,10 +1,16 @@
 import "server-only";
 
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { courses, enrollments, lectureProgress, lectures, users } from "@/lib/db/schema";
 import type { Role } from "@/lib/auth/roles";
 import { listLecturesForProfessor, listPublishedLecturesForStudent, type ProfessorLecture, type StudentLecture } from "./lectures";
+import {
+  listMaterialsForProfessor,
+  listPublishedMaterialsForStudent,
+  type ProfessorMaterial,
+  type StudentMaterial,
+} from "./course-materials";
 import { listRoster, type Roster } from "./enrollments";
 
 // Every function takes the acting user's id and encodes the permission rule
@@ -20,12 +26,17 @@ export type CourseSummary = {
 export type StudentCourseDetail = CourseSummary & {
   professorName: string | null;
   lectures: StudentLecture[];
+  /** Never the storage path — students only need to know it exists. */
+  hasSyllabus: boolean;
+  materials: StudentMaterial[];
 };
 
 export type ProfessorCourseDetail = CourseSummary & {
   professorName: string | null;
   lectures: ProfessorLecture[];
   roster: Roster;
+  syllabusUploadedAt: Date | null;
+  materials: ProfessorMaterial[];
 };
 
 /** The minimum identity a data function needs to decide ownership. */
@@ -88,14 +99,28 @@ export async function getCourseForStudent(
   studentId: string,
 ): Promise<StudentCourseDetail | null> {
   const [row] = await db
-    .select({ ...summaryColumns, professorName: users.fullName })
+    .select({
+      ...summaryColumns,
+      professorName: users.fullName,
+      syllabusUploadedAt: courses.syllabusUploadedAt,
+    })
     .from(enrollments)
     .innerJoin(courses, eq(enrollments.courseId, courses.id))
     .innerJoin(users, eq(courses.professorId, users.id))
     .where(and(eq(enrollments.studentId, studentId), eq(enrollments.courseId, courseId)))
     .limit(1);
   if (!row) return null;
-  return { ...row, lectures: await listPublishedLecturesForStudent(courseId, studentId) };
+  const { syllabusUploadedAt, ...summary } = row;
+  const [lectureRows, materialRows] = await Promise.all([
+    listPublishedLecturesForStudent(courseId, studentId),
+    listPublishedMaterialsForStudent(courseId),
+  ]);
+  return {
+    ...summary,
+    hasSyllabus: syllabusUploadedAt !== null,
+    lectures: lectureRows,
+    materials: materialRows,
+  };
 }
 
 /** Courses taught by the professor. */
@@ -145,17 +170,22 @@ export async function getCourseForProfessor(
   actor: Actor,
 ): Promise<ProfessorCourseDetail | null> {
   const [row] = await db
-    .select({ ...summaryColumns, professorName: users.fullName })
+    .select({
+      ...summaryColumns,
+      professorName: users.fullName,
+      syllabusUploadedAt: courses.syllabusUploadedAt,
+    })
     .from(courses)
     .innerJoin(users, eq(courses.professorId, users.id))
     .where(ownedBy(courseId, actor))
     .limit(1);
   if (!row) return null;
-  const [lectureRows, roster] = await Promise.all([
+  const [lectureRows, roster, materialRows] = await Promise.all([
     listLecturesForProfessor(courseId),
     listRoster(courseId),
+    listMaterialsForProfessor(courseId),
   ]);
-  return { ...row, lectures: lectureRows, roster };
+  return { ...row, lectures: lectureRows, roster, materials: materialRows };
 }
 
 /** All courses (admin only; caller must have checked the role). */
@@ -194,4 +224,69 @@ export async function updateCourse(
     .where(ownedBy(courseId, actor))
     .returning({ id: courses.id });
   return rows.length > 0;
+}
+
+// ─── Syllabus (1:1 singleton on the course row; no publish step) ──────────────
+
+/** Record a syllabus upload. Ownership is part of the WHERE; returns false
+ * if nothing matched (not found or not owned). The storage path is always
+ * the deterministic courses/{id}/syllabus.pdf — passed in rather than
+ * recomputed here so the caller (which already validated the object at
+ * that exact path) is the single source of truth for what got recorded. */
+export async function updateCourseSyllabus(
+  courseId: string,
+  actor: Actor,
+  storagePath: string,
+): Promise<boolean> {
+  const rows = await db
+    .update(courses)
+    .set({ syllabusStoragePath: storagePath, syllabusUploadedAt: new Date(), updatedAt: new Date() })
+    .where(ownedBy(courseId, actor))
+    .returning({ id: courses.id });
+  return rows.length > 0;
+}
+
+/** Remove the syllabus reference (the Storage object is removed by the
+ * caller first). Ownership is part of the WHERE. */
+export async function clearCourseSyllabus(courseId: string, actor: Actor): Promise<boolean> {
+  const rows = await db
+    .update(courses)
+    .set({ syllabusStoragePath: null, syllabusUploadedAt: null, updatedAt: new Date() })
+    .where(ownedBy(courseId, actor))
+    .returning({ id: courses.id });
+  return rows.length > 0;
+}
+
+/**
+ * What the viewer may download of a course's syllabus, or null. Mirrors
+ * getLectureForViewer's shape: professors/admins who own the course get
+ * whatever is there (null if nothing's been uploaded yet — there's no
+ * draft state to preview past, since upload makes it visible to students
+ * immediately). Everyone else needs an enrollment.
+ */
+export async function getSyllabusForViewer(
+  courseId: string,
+  actor: Actor,
+): Promise<{ storagePath: string } | null> {
+  if (actor.role === "professor" || actor.role === "admin") {
+    const owned = await findOwnedCourse(courseId, actor);
+    if (owned) {
+      const [row] = await db
+        .select({ storagePath: courses.syllabusStoragePath })
+        .from(courses)
+        .where(eq(courses.id, courseId))
+        .limit(1);
+      if (!row?.storagePath) return null;
+      return { storagePath: row.storagePath };
+    }
+  }
+
+  const [row] = await db
+    .select({ storagePath: courses.syllabusStoragePath })
+    .from(courses)
+    .innerJoin(enrollments, and(eq(enrollments.courseId, courses.id), eq(enrollments.studentId, actor.id)))
+    .where(and(eq(courses.id, courseId), isNotNull(courses.syllabusStoragePath)))
+    .limit(1);
+  if (!row?.storagePath) return null;
+  return { storagePath: row.storagePath };
 }

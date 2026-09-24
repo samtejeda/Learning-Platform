@@ -11,6 +11,10 @@ import { buttonClassName } from "@/components/ui/button";
 import { RosterManager } from "@/components/roster-manager";
 import { LectureListManager } from "@/components/lecture-list-manager";
 import { LectureUploadForm } from "@/components/lecture-upload-form";
+import { SyllabusManager } from "@/components/syllabus-manager";
+import { SyllabusViewer } from "@/components/syllabus-viewer";
+import { CourseMaterialsManager } from "@/components/course-materials-manager";
+import { CourseMaterialForm } from "@/components/course-material-form";
 
 const paramsSchema = z.object({ courseId: z.uuid() });
 
@@ -63,6 +67,44 @@ export default async function ProfessorCoursePage({
           Upload the video, then publish it when you&apos;re ready. Students only see published lectures.
         </p>
         <LectureUploadForm courseId={course.id} />
+      </Card>
+
+      <Card>
+        <CardTitle>Syllabus</CardTitle>
+        <p className="mb-4 mt-1 text-sm text-muted">
+          One PDF, visible to students as soon as it&apos;s uploaded — there&apos;s no separate publish step.
+        </p>
+        <SyllabusManager
+          courseId={course.id}
+          uploadedAt={course.syllabusUploadedAt ? course.syllabusUploadedAt.toISOString() : null}
+        />
+        {course.syllabusUploadedAt && (
+          <div className="mt-6 border-t border-hairline pt-6">
+            <p className="mb-3 text-sm font-medium text-ink">Preview</p>
+            <SyllabusViewer courseId={course.id} />
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <CardTitle>Course materials</CardTitle>
+          <span className="text-sm tabular-nums text-muted">
+            {course.materials.length === 0
+              ? "None yet"
+              : `${course.materials.filter((m) => m.status === "published").length} of ${course.materials.length} published`}
+          </span>
+        </div>
+        <CourseMaterialsManager courseId={course.id} materials={course.materials} />
+      </Card>
+
+      <Card variant="outlined">
+        <CardTitle>Add a material</CardTitle>
+        <p className="mb-5 mt-1 text-sm text-muted">
+          Upload a file or add a link, then publish it when you&apos;re ready. Students only see published
+          materials.
+        </p>
+        <CourseMaterialForm courseId={course.id} />
       </Card>
 
       <Card>
