@@ -104,6 +104,8 @@ GitHub emails you on a failed run. Common causes: (a) **no run at all** → GitH
 
 Vercel dashboard → Deployments → open the last good deployment → **Instant Rollback** (Pro keeps the full history; Hobby only the previous one). CLI: `vercel rollback`. **(untested until the first real deploy: do it once in a quiet moment.)**
 
+**After any rollback, fix auto-assign or nothing new goes live (found 2026-09-25).** Instant Rollback turns off auto-assignment of the production domain, and promoting the latest deployment afterwards does not turn it back on. Merges keep building but the public domain stays on the old code. To finish a rollback drill: promote the newest production deployment (`vercel promote <deployment-url>`), then re-enable auto-assign (`vercel api /v9/projects/learning-platform -X PATCH -F autoAssignCustomDomains=true`, or Project Settings in the dashboard), then verify `vercel inspect <public domain>` shows the deployment you expect. Do not rely on GitHub's deployment records to know what the public domain serves.
+
 **Rolling back the app does not roll back the database.** So migrations must be **expand-then-contract**:
 
 - Additive migrations first (new nullable column, new table), deploy code that uses them, and only in a *later* release remove what's unused.
