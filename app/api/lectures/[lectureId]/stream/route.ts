@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { assertUser } from "@/lib/auth/session";
 import { getLectureForViewer } from "@/lib/data/progress";
 import { createLectureStreamUrl, StorageError } from "@/lib/storage";
+import { logger } from "@/lib/logger";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { handleRouteError, jsonError } from "@/lib/api/respond";
 import { uuidSchema } from "@/lib/validation/courses";
@@ -36,6 +37,10 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ lectur
       if (!(err instanceof StorageError)) throw err;
       return jsonError(503, "storage_unavailable", "Video is unavailable right now. Please try again.");
     }
+
+    // Egress tripwire: count of issued URLs x average file size ~ video egress
+    // (docs/RUNBOOK.md, section 7). Lecture id only; no user identifiers.
+    logger.info("lecture.stream_url_issued", { lectureId: lecture.id });
 
     return NextResponse.json(
       { url: signed.url, expiresAt: signed.expiresAt.toISOString() },

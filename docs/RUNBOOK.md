@@ -37,6 +37,8 @@ Until each item is done, the matching safety net is **not active**. Tick them of
 | `event` | Level | Meaning |
 |---|---|---|
 | `auth.sign_in_failed`, `auth.otp_verify_failed` | warn | Wrong credentials/code. A *spike* means someone is guessing. |
+| `lecture.stream_url_issued` | info | A student was handed a signed video URL (`lectureId` only). Rough egress = count x average lecture size; compare with Supabase billing (section 7). |
+| `lecture.upload_rejected` | info | An upload failed the encode gate (`reason`, plus codec/size/bitrate). A spike means professors need the preset in `docs/ENCODING.md`. |
 | `auth.rate_limited` | warn | A limit tripped (`scope`, `dimension: ip\|identifier`). A spike is an attack; a single one may be a real user. |
 | `auth.code_exchange_failed` | warn | An email link (confirm / reset) was expired or reused. |
 | `auth.sign_up_failed`, `auth.password_reset_failed`, `auth.update_password_failed` | error | Supabase Auth misbehaving. Also goes to Sentry. |
