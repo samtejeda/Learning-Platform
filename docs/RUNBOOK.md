@@ -193,3 +193,13 @@ What is ours:
 - **Caching.** Per-user, permission-scoped queries are deliberately **not** cached across requests (a cache could show a student a course after they were unenrolled). Revisit only with real traffic numbers, and only for non-permissioned data.
 - **Video** is served by Supabase Storage via short-lived signed URLs, not through Vercel compute.
 - **Known blind spot:** `/api/health` checks Postgres and Supabase Auth only. It cannot see Twilio, Storage or Sentry.
+
+## 7. Video CDN check (Phase 0, run before choosing a CDN)
+
+Lecture URLs carry a per-request signed token, so a CDN that keys its cache on the full URL never hits. To measure what Supabase's Storage CDN does, with a real uploaded lecture and `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`:
+
+```
+pnpm cdn:verify -- courses/<courseId>/lectures/<lectureId>/video.mp4
+```
+
+It signs two URLs for the same object, fetches the first 1 KiB of each (repeating URL A), and prints `cf-cache-status` / `age`. **The line that matters is "different token still hits cache".** `true` means Supabase's CDN already ignores the token; `false` means it doesn't, and the fallback is a stable rounded signing window or a Cloudflare Worker keyed on the object path. Read-only; prints no URLs or tokens. Status: **(untested)** until run against a real object.
