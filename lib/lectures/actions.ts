@@ -3,6 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { logger } from "@/lib/logger";
 import { assertRole } from "@/lib/auth/session";
 import { findOwnedCourse } from "@/lib/data/courses";
 import {
@@ -20,9 +21,12 @@ import {
   isLectureMimeType,
   lectureObjectPath,
   LECTURES_BUCKET,
+  readLectureHead,
   removeObjects,
   StorageError,
 } from "@/lib/storage";
+import { evaluateEncode } from "@/lib/video/encode-policy";
+import { probeMp4 } from "@/lib/video/mp4-probe";
 import { parseFormData, parseObject, type ActionState } from "@/lib/validation/form";
 import {
   createLectureSchema,
@@ -123,9 +127,46 @@ export async function finalizeLectureUpload(lectureId: string, input: unknown): 
     return { error: "That file isn't a supported video." };
   }
 
-  await markLectureUploaded(lecture.id, parsed.data.durationSeconds);
+  // Server-side encode gate: read the real header instead of trusting the
+  // browser. The probed duration replaces the client-reported one.
+  let head: Uint8Array | null;
+  try {
+    head = await readLectureHead(lecture.videoStoragePath);
+  } catch (err) {
+    if (!(err instanceof StorageError)) throw err;
+    return { error: "We couldn't verify the upload. Please try again." };
+  }
+  if (!head) return { error: "We couldn't verify the upload. Please try again." };
+
+  const probe = probeMp4(head, info.sizeBytes);
+  if (!probe.ok) {
+    await removeObjects([lecture.videoStoragePath]).catch(() => {});
+    logger.info("lecture.upload_rejected", { reason: probe.reason });
+    return {
+      error:
+        probe.reason === "moov_not_in_head"
+          ? "The video's index is at the end of the file, so it can't start playing quickly. Re-export with the preset in docs/ENCODING.md."
+          : "That file isn't a valid MP4 video. Re-export with the preset in docs/ENCODING.md.",
+    };
+  }
+  const verdict = evaluateEncode(probe.info);
+  if (verdict.verdict === "reject") {
+    await removeObjects([lecture.videoStoragePath]).catch(() => {});
+    logger.info("lecture.upload_rejected", {
+      reason: "encode_policy",
+      bitrateMbps: Math.round(probe.info.bitrateBps / 1e5) / 10,
+      width: probe.info.width,
+      height: probe.info.height,
+      codec: probe.info.videoCodec,
+      fastStart: probe.info.fastStart,
+    });
+    return { error: verdict.notes.join(" ") };
+  }
+
+  await markLectureUploaded(lecture.id, Math.max(1, Math.round(probe.info.durationSeconds)));
   revalidatePath(`/professor/courses/${lecture.courseId}`);
-  return { success: "Video uploaded. Publish it when you're ready." };
+  const note = verdict.verdict === "warn" ? ` ${verdict.notes.join(" ")}` : "";
+  return { success: `Video uploaded. Publish it when you're ready.${note}` };
 }
 
 // publish/unpublish/delete take only the bound id; useActionState's `prev`

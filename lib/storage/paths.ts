@@ -4,17 +4,23 @@
 
 export const LECTURES_BUCKET = "lectures";
 
-/** Container types the private bucket accepts (mirrors drizzle/0006). */
-export const LECTURE_MIME_TYPES = ["video/mp4", "video/webm", "video/quicktime"] as const;
+/**
+ * Lecture uploads are MP4 (H.264) only: WebM is VP9/AV1 and .mov is often
+ * HEVC, neither meets the encode target or plays everywhere. The bucket's own
+ * allowlist (drizzle/0006) is deliberately left broader; the app narrows it.
+ */
+export const LECTURE_MIME_TYPES = ["video/mp4"] as const;
 export type LectureMimeType = (typeof LECTURE_MIME_TYPES)[number];
 
-/** Hard ceiling enforced server-side before a signed upload URL is issued. */
-export const LECTURE_MAX_BYTES = 2 * 1024 * 1024 * 1024; // 2 GiB (bucket cap)
+/**
+ * Hard ceiling enforced server-side before a signed upload URL is issued.
+ * A 45-minute lecture at the 2 Mbps target is ~675 MB; 1 GiB leaves headroom
+ * for longer sessions without admitting multi-GB source recordings.
+ */
+export const LECTURE_MAX_BYTES = 1024 * 1024 * 1024; // 1 GiB
 
 const EXT_BY_MIME: Record<LectureMimeType, string> = {
   "video/mp4": "mp4",
-  "video/webm": "webm",
-  "video/quicktime": "mov",
 };
 
 export function isLectureMimeType(value: unknown): value is LectureMimeType {
