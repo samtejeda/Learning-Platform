@@ -19,7 +19,7 @@ jobs:
     steps:
       # Shallow clone: the repo's first commit accidentally included
       # node_modules/, so full history is ~100 MB we never need in CI.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 1
 
