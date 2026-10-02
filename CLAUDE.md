@@ -52,7 +52,7 @@ All role checks happen **server-side only**. Never trust the client for permissi
 - Anti-scrubbing enforcement: server tracks per-student watch progress; a lecture is only marked "complete" when >= 95% has been genuinely watched (server validates, not frontend)
 - Optional end-of-lecture comprehension question (per-course setting by professor)
 - **Encode target: 720p H.264, ~1.5-2 Mbps.** Decided 2026-09-24 based on real catalog sizing (36 courses × ~4 lectures × 45 min): at this bitrate, total video stays comfortably under Supabase's included 100GB (Pro plan); 1080p or higher pushes the catalog to 150-250GB+ for no real benefit on talking-head/slide lecture content viewed on mobile. See `PROGRESS.md` ("Decisions & assumptions") for the full math.
-- **A CDN must sit in front of signed-URL video delivery** (Supabase's own Storage CDN, or a Cloudflare proxy) before real-launch traffic. This is launch-blocking, not a performance nice-to-have: storage overage on Supabase is cheap (~$0.021/GB/month), but egress is not (~$0.09/GB past the included 250GB/month), and every lecture view pulls the full file — rewatching across even a few dozen students blows past egress long before storage is the constraint. **Cache-key requirement:** lecture URLs are per-request signed tokens (`lib/storage/`), so the CDN's cache key must be the underlying object path with the signed token/query string stripped — caching on the full URL (token included) yields a 0% hit rate since every request looks like a different resource. The signed-URL check still gates whether a request is allowed through; the CDN serves cached bytes only after that check passes.
+- **A CDN must sit in front of signed-URL video delivery** (Supabase's own Storage CDN, or a Cloudflare proxy) before real-launch traffic. This is launch-blocking, not a performance nice-to-have: storage overage on Supabase is cheap (~$0.021/GB/month), but egress is not (~$0.09/GB past the included 250GB/month), and every lecture view pulls the full file — rewatching across even a few dozen students blows past egress long before storage is the constraint. **Cache-key requirement:** lecture URLs are per-request signed tokens (`lib/storage/`), so the CDN's cache key must be the underlying object path with the signed token/query string stripped — caching on the full URL (token included) yields a 0% hit rate since every request looks like a different resource. The signed-URL check still gates whether a request is allowed through; the CDN serves cached bytes only after that check passes. **Built (2026-10-02):** Supabase's own CDN was measured and keys on the full URL (miss across tokens), so a Cloudflare Worker (`workers/video-cdn/`, on `*.workers.dev`, no domain needed) sits in front: Next still authorizes and mints an HMAC-signed Worker URL (`lib/video-cdn/`), the Worker caches 8 MiB chunks keyed on object path. Unsetting `VIDEO_CDN_URL` is the rollback. See `docs/RUNBOOK.md` section 8.
 
 ### Syllabus
 - One PDF per course, stored in the private `course-files` Storage bucket at a fixed, deterministic path (re-uploading replaces it in place)
@@ -127,6 +127,7 @@ Route groups don't appear in URLs, so each role's surface gets a distinct URL pr
 │   ├── data/                   # Query functions; each takes the acting user id and encodes permission in the query
 │   ├── courses/, enrollments/, lectures/, syllabus/, course-materials/  # actions.ts per domain (server actions)
 │   ├── progress/               # policy.ts: pure anti-scrub rules (merge intervals, wall-clock bound, completion)
+│   ├── video-cdn/              # HMAC-signed Worker URLs (token.ts, shared with the Worker) + Range/chunk math; server.ts mints URLs for the stream route
 │   ├── storage/                # Service-role Supabase Storage client (signed URLs only, two buckets: lectures, course-files) + pure path/MIME helpers
 │   ├── supabase/               # Supabase client helpers (server / client)
 │   ├── auth/                   # actions.ts (server actions), session.ts (getCurrentUser/require*/assert*), roles.ts (pure path/role rules)
@@ -138,6 +139,7 @@ Route groups don't appear in URLs, so each role's surface gets a distinct URL pr
 │   ├── sentry/                 # Shared init options, event/breadcrumb scrubbing, client-error reporter
 │   └── api/                    # respond.ts: JSON error helpers + same-origin guard for route handlers
 ├── test/                       # Integration-test harness (stubs, dev-only seed accounts) — see pnpm test:integration
+├── workers/video-cdn/          # Cloudflare Worker: path-keyed chunk cache in front of signed lecture URLs (deployed with wrangler, see RUNBOOK §8)
 ├── scripts/backup/             # Encrypted dump + restore-test (run by .github/workflows/backup.yml)
 ├── docs/RUNBOOK.md             # Failure scenarios, rollback, backup drills
 ├── drizzle/                    # Versioned SQL migrations + meta (committed)

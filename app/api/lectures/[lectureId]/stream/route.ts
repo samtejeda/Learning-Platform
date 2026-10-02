@@ -3,6 +3,7 @@ import { assertUser } from "@/lib/auth/session";
 import { getLectureForViewer } from "@/lib/data/progress";
 import { createLectureStreamUrl, StorageError } from "@/lib/storage";
 import { logger } from "@/lib/logger";
+import { toCdnUrl } from "@/lib/video-cdn/server";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { handleRouteError, jsonError } from "@/lib/api/respond";
 import { uuidSchema } from "@/lib/validation/courses";
@@ -43,7 +44,7 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ lectur
     logger.info("lecture.stream_url_issued", { lectureId: lecture.id });
 
     return NextResponse.json(
-      { url: signed.url, expiresAt: signed.expiresAt.toISOString() },
+      { url: await toCdnUrl(lecture.videoStoragePath, signed), expiresAt: signed.expiresAt.toISOString() },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (err) {

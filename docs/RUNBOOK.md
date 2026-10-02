@@ -207,3 +207,36 @@ pnpm cdn:verify -- courses/<courseId>/lectures/<lectureId>/video.mp4
 ```
 
 It signs two URLs for the same object, fetches the first 1 KiB of each (repeating URL A), and prints `cf-cache-status` / `age`. **The line that matters is "different token still hits cache".** `true` means Supabase's CDN already ignores the token; `false` means it doesn't, and the fallback is a stable rounded signing window or a Cloudflare Worker keyed on the object path. Read-only; prints no URLs or tokens. Status: **(untested)** until run against a real object.
+
+## 8. Lecture video CDN Worker
+
+**Why:** Supabase's Storage CDN keys its cache on the full signed URL, so two viewers of the same lecture never share a cached copy (measured 2026-10-02: same token = HIT, different token = MISS). The Worker caches on the object path instead.
+
+**Flow:** the browser asks `GET /api/lectures/[id]/stream` → Next checks login, enrollment and published state exactly as before → it signs the Supabase URL, then wraps it in a Worker URL: `<VIDEO_CDN_URL>/v/<objectPath>?exp&o=<Supabase URL>&sig`. The Worker verifies the HMAC (`lib/video-cdn/token.ts`, shared with Next), pins the origin to our Supabase host and that exact object, then serves 8 MiB chunks from Cloudflare's cache, fetching a missing chunk from Supabase with a Range request. **Next decides who may watch; the Worker only proves "Next minted this".** A leaked URL works until its 15-minute expiry, same as a leaked Supabase URL today. Chunks (not whole files) because Cloudflare caps one cached object at 512 MB and cannot store partial responses.
+
+**Where things live:** code `workers/video-cdn/`; Worker `lp-video-cdn` on `https://lp-video-cdn.lp-academy-cdn.workers.dev`; secret `VIDEO_CDN_HMAC_SECRET` is set both in Vercel (Production) and as a Worker secret; Vercel also needs `VIDEO_CDN_URL`. Local copies of the secret and the API token live in `~/.learning-platform-secrets/` (never in the repo).
+
+**Deploy / update the Worker** (**exercised** 2026-10-02):
+```
+cd workers/video-cdn
+export CLOUDFLARE_API_TOKEN="$(cat ~/.learning-platform-secrets/cloudflare-api-token.txt)"
+export CLOUDFLARE_ACCOUNT_ID=<account id> WRANGLER_SEND_METRICS=false
+npx wrangler deploy --var SUPABASE_ORIGIN:https://<project>.supabase.co
+tr -d '\n' < ~/.learning-platform-secrets/video-cdn-hmac-secret.txt | npx wrangler secret put VIDEO_CDN_HMAC_SECRET
+```
+A brand-new `workers.dev` hostname can refuse TLS for a minute or two after its first deploy.
+
+**Rotate the HMAC secret:** generate a new value, `wrangler secret put` it, update Vercel Production, redeploy. Between the two steps new URLs 403 for up to a few minutes; players refetch and recover. **Rotate the Cloudflare API token** in the Cloudflare dashboard, then replace the file.
+
+**Roll back / turn off:** remove `VIDEO_CDN_URL` from Vercel and redeploy. The stream route immediately returns plain Supabase URLs again (also what previews do). No Worker change needed.
+
+**Verify:** `VIDEO_CDN_URL=... VIDEO_CDN_HMAC_SECRET=... pnpm cdn:verify -- <object path>` (section 7). The Worker lines to read: "different token hits cache" must be `true`, forged/expired → 403, POST → 405. Responses carry `X-Cache: HIT|MISS`. **(exercised)** 2026-10-02 on a 630 KB lecture, and on a temporary 20 MiB object (3 chunks): bytes identical across a full sequential walk, second walk with new tokens all HIT, suffix and chunk-boundary ranges correct, past-end 416; the temporary object was deleted.
+
+**Symptoms:** video won't start, `403` from the Worker host → secrets differ between Vercel and the Worker (re-put both from the same file). `502` → Supabase unreachable or object missing. Worker error 1102/1015 or a 429 from Cloudflare → free-plan limits (see below).
+
+**Limits and caveats:**
+- Workers free plan: 100,000 requests/day, 10 ms CPU each. An 8 MiB chunk is one request, so a 45-minute lecture is about 75 requests; the free plan covers roughly 1,300 full views a day. Over that, the $5/mo paid plan is Sam's decision.
+- The Cache API is **per Cloudflare data center**, not global: a viewer only hits chunks warmed by someone served from the same data center. Fine for one congregation in one region; expect more misses if students are spread across regions.
+- Cached chunks outlive a deleted lecture until Cloudflare evicts them, but they are unreachable: Next won't mint a URL for a lecture a student can't access.
+- **Not yet measured:** a real 45-minute (500-675 MB) lecture. Multi-chunk logic is verified live on 20 MiB; the free Supabase tier's 50 MB object cap blocks anything bigger until Pro is active.
+- Egress: a cache hit costs Supabase nothing; a miss costs one chunk. `lecture.stream_url_issued` logs (section 2) still count views.
