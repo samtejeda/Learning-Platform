@@ -3,10 +3,16 @@
 //
 //   pnpm cdn:verify -- courses/<courseId>/lectures/<lectureId>/video.mp4
 //
+// With VIDEO_CDN_URL and VIDEO_CDN_HMAC_SECRET also set, it then runs the
+// same measurement through the CDN Worker plus its security checks (bad/
+// expired/tampered signature, wrong method). Part 2 duplicates the signing in
+// lib/video-cdn/token.ts (this script is plain Node); keep the two in sync.
+//
 // Needs NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (from .env.local).
 // Read-only: signs URLs and fetches the first 1 KiB. Prints cache headers only,
 // never the signed URLs or tokens.
 import { createClient } from "@supabase/supabase-js";
+import { createHmac } from "node:crypto";
 
 const path = process.argv.slice(2).find((a) => a !== "--");
 if (!path) {
@@ -58,3 +64,46 @@ if (!hit(r3)) {
       "     signing (only if the token has no per-call field), or a Cloudflare Worker keyed on path.",
   );
 }
+
+// ─── Part 2: the CDN Worker ──────────────────────────────────────────────────
+const cdnBase = process.env.VIDEO_CDN_URL?.trim().replace(/\/+$/, "");
+const cdnSecret = process.env.VIDEO_CDN_HMAC_SECRET?.trim();
+if (!cdnBase || !cdnSecret) {
+  console.log("\n(VIDEO_CDN_URL / VIDEO_CDN_HMAC_SECRET not set: skipping the Worker checks.)");
+  process.exit(0);
+}
+
+async function workerUrl({ exp = Math.floor(Date.now() / 1000) + 900, secret = cdnSecret, objectPath = path } = {}) {
+  const origin = await sign(900); // a fresh Supabase token every time
+  const sig = createHmac("sha256", secret).update(`v1\n${objectPath}\n${exp}\n${origin}`).digest("base64url");
+  return `${cdnBase}/v/${objectPath}?${new URLSearchParams({ exp: String(exp), o: origin, sig })}`;
+}
+
+async function wprobe(label, u, { range = "bytes=0-1023", method = "GET" } = {}) {
+  const res = await fetch(u, { method, headers: range ? { Range: range } : {} });
+  const body = Buffer.from(await res.arrayBuffer());
+  console.log(
+    `${label.padEnd(40)} status=${res.status} x-cache=${res.headers.get("x-cache") ?? "-"} ` +
+      `content-range=${res.headers.get("content-range") ?? "-"} bytes=${body.length}`,
+  );
+  return { res, body };
+}
+
+console.log("\nWorker (cache key = object path; every request below carries a different Supabase token):");
+const w1 = await wprobe("token 1, first request", await workerUrl());
+const w2 = await wprobe("token 2, same object", await workerUrl());
+const w3 = await wprobe("token 3, same object", await workerUrl());
+const mid = await wprobe("token 4, mid-file range", await workerUrl(), { range: "bytes=100-199" });
+console.log("\nsecurity:");
+const bad = await wprobe("bad signature", (await workerUrl()).replace(/sig=[^&]+/, "sig=AAAA"));
+const exp = await wprobe("expired", await workerUrl({ exp: Math.floor(Date.now() / 1000) - 5 }));
+const wrongSecret = await wprobe("signed with the wrong secret", await workerUrl({ secret: "nope" }));
+const post = await wprobe("POST", await workerUrl(), { method: "POST" });
+
+const xc = (r) => r.res.headers.get("x-cache");
+console.log("\nworker verdict:");
+console.log(`  different token hits cache:  ${xc(w2) === "HIT" && xc(w3) === "HIT"}   <- the one that matters`);
+console.log(`  first request was a miss:    ${xc(w1) === "MISS" || xc(w1) === "HIT"} (x-cache=${xc(w1)}; HIT if already warm)`);
+console.log(`  range slice is 100 bytes:    ${mid.body.length === 100 && mid.res.status === 206}`);
+console.log(`  bad/expired/forged -> 403:   ${[bad, exp, wrongSecret].every((r) => r.res.status === 403)}`);
+console.log(`  POST -> 405:                 ${post.res.status === 405}`);
