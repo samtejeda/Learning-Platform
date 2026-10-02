@@ -57,7 +57,7 @@ All role checks happen **server-side only**. Never trust the client for permissi
 ### Syllabus
 - One PDF per course, stored in the private `course-files` Storage bucket at a fixed, deterministic path (re-uploading replaces it in place)
 - **No publish step** — uploading it makes it visible to students immediately (asymmetric with Course Materials on purpose)
-- Renders inline via `<iframe>` on the course page, plus an "Open in new tab" fallback link (some mobile in-app browsers don't render PDFs inline)
+- Currently renders inline via `<iframe>` with an "Open in new tab" link. **Decided 2026-09-25 to change:** a tap-to-open button that behaves like a course material file (signed URL fetched on tap, opened in a new tab), no inline box. Scheduled for the frontend restyle pass; see `PROGRESS.md`.
 
 ### Course Materials
 - A list of general, course-level resources not tied to any one lecture: an uploaded file (PDF, document, image, or video) or an external link
