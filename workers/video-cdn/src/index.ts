@@ -6,7 +6,8 @@ type Ctx = { waitUntil(p: Promise<unknown>): void };
 
 const worker = {
   async fetch(req: Request, env: Env, ctx: Ctx): Promise<Response> {
-    return handleRequest(req, env, {
+    // Trim: a secret piped in from a file can carry a trailing newline.
+    return handleRequest(req, { ...env, VIDEO_CDN_HMAC_SECRET: env.VIDEO_CDN_HMAC_SECRET.trim() }, {
       cache: caches.default,
       fetchOrigin: (url, init) => fetch(url, init),
       waitUntil: (p) => ctx.waitUntil(p),

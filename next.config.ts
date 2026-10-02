@@ -23,6 +23,8 @@ function originOf(value: string | undefined): string {
   }
 }
 const sentryOrigin = originOf(process.env.NEXT_PUBLIC_SENTRY_DSN);
+// Lecture video may be served by the CDN Worker (VIDEO_CDN_URL); empty when unset.
+const videoCdnOrigin = originOf(process.env.VIDEO_CDN_URL);
 
 // Content-Security-Policy. Shipped as Report-Only first: Next.js inlines
 // scripts and styles, so an enforced policy without per-request nonces would
@@ -33,7 +35,7 @@ const csp = [
   `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
   `img-src 'self' data: blob: ${supabaseOrigin}`.trim(),
-  `media-src 'self' blob: ${supabaseOrigin}`.trim(),
+  `media-src 'self' blob: ${supabaseOrigin} ${videoCdnOrigin}`.trim(),
   // The syllabus viewer embeds a signed Supabase Storage PDF URL in an
   // <iframe>; without this it falls back to default-src 'self' and would
   // be blocked once the policy is enforced (still Report-Only for now).
