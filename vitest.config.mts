@@ -8,7 +8,7 @@ export default defineConfig({
     },
   },
   test: {
-    include: ["lib/**/*.test.ts"],
+    include: ["lib/**/*.test.ts", "workers/**/*.test.ts"],
     exclude: ["**/node_modules/**", "**/*.integration.test.ts"],
     environment: "node",
   },

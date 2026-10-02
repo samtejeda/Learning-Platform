@@ -1,0 +1,9 @@
+# Lecture-video CDN Worker. Deploy: see docs/RUNBOOK.md section 8.
+# Not set here (deploy-time, never committed):
+#   SUPABASE_ORIGIN         plain var: https://<project>.supabase.co
+#   VIDEO_CDN_HMAC_SECRET   secret:    same value as the Vercel env var
+name = "lp-video-cdn"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+workers_dev = true
+preview_urls = false
