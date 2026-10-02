@@ -13,6 +13,7 @@ import {
   unpublishLecture,
 } from "@/lib/lectures/actions";
 import { AuthError } from "@/lib/auth/session";
+import { buildMp4Head } from "@/lib/video/mp4-fixture";
 
 // Storage is mocked: these tests prove the DB-side rules (ownership,
 // lifecycle gates, ordering). The real signed-URL round trip needs
@@ -20,6 +21,7 @@ import { AuthError } from "@/lib/auth/session";
 const storage = vi.hoisted(() => ({
   objects: new Map<string, { sizeBytes: number; contentType: string | null }>(),
   removed: [] as string[],
+  head: null as Uint8Array | null,
 }));
 vi.mock("@/lib/storage", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/storage")>();
@@ -27,6 +29,7 @@ vi.mock("@/lib/storage", async (importOriginal) => {
     ...actual,
     createLectureUploadUrl: async () => ({ token: "test-token" }),
     getObjectInfo: async (path: string) => storage.objects.get(path) ?? null,
+    readLectureHead: async () => storage.head,
     removeObjects: async (paths: string[]) => {
       storage.removed.push(...paths);
       paths.forEach((p) => storage.objects.delete(p));
@@ -95,8 +98,18 @@ describe("lectures: upload lifecycle with ownership", () => {
 
     storage.objects.set(path, { sizeBytes: 1234, contentType: "video/mp4" });
     expect((await finalizeLectureUpload(lectureId, { durationSeconds: 0 }))?.fieldErrors?.durationSeconds).toBeTruthy();
+
+    // Encode gate: HEVC is refused and the object removed.
+    storage.head = buildMp4Head({ codec: "hvc1" });
+    storage.removed.length = 0;
+    expect((await finalizeLectureUpload(lectureId, { durationSeconds: 120 }))?.error).toMatch(/H\.264/);
+    expect(storage.removed).toContain(path);
+
+    // A compliant file passes; the server-probed duration (600 s) wins over the client's 120.
+    storage.objects.set(path, { sizeBytes: 1234, contentType: "video/mp4" });
+    storage.head = buildMp4Head({ seconds: 600 });
     expect((await finalizeLectureUpload(lectureId, { durationSeconds: 120 }))?.success).toMatch(/uploaded/i);
-    expect((await getOwnedLecture(lectureId, A))).toMatchObject({ status: "draft", durationSeconds: 120 });
+    expect((await getOwnedLecture(lectureId, A))).toMatchObject({ status: "draft", durationSeconds: 600 });
   });
 
   it("other professors cannot finalize/publish/delete; owner can publish, student then sees it", async () => {
@@ -119,7 +132,7 @@ describe("lectures: upload lifecycle with ownership", () => {
 
   it("reorder must cover exactly the course's lectures and is owner-only", async () => {
     actAs(SEED.profA.id);
-    const t2 = await createLecture(courseId, { title: "Second", contentType: "video/webm", sizeBytes: 10 });
+    const t2 = await createLecture(courseId, { title: "Second", contentType: "video/mp4", sizeBytes: 10 });
     if (!t2.ok) throw new Error(t2.error);
     const before = (await getCourseForProfessor(courseId, A))!.lectures.map((l) => l.id);
     expect(before).toEqual([lectureId, t2.lectureId]);

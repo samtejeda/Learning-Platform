@@ -108,6 +108,30 @@ export async function createLectureStreamUrl(
   return signedUrl(LECTURES_BUCKET, path, ttlSeconds);
 }
 
+/** How much of a video's head to read for the MP4 probe. The `moov` box of a
+ * 45-minute lecture is well under 2 MiB when it sits at the front. */
+export const VIDEO_PROBE_BYTES = 8 * 1024 * 1024;
+
+/**
+ * First bytes of a lecture object, for header probing only. The fetch target
+ * is a URL we just signed ourselves for a server-chosen path, never anything
+ * user-supplied, so this is not an SSRF vector. Returns null if unreadable.
+ */
+export async function readLectureHead(path: string): Promise<Uint8Array | null> {
+  const { url } = await signedUrl(LECTURES_BUCKET, path, 60);
+  try {
+    const res = await fetch(url, {
+      headers: { Range: `bytes=0-${VIDEO_PROBE_BYTES - 1}` },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (res.status !== 200 && res.status !== 206) return null;
+    return new Uint8Array(await res.arrayBuffer()).subarray(0, VIDEO_PROBE_BYTES);
+  } catch (err) {
+    logger.warn("storage.read_head_failed", { bucket: LECTURES_BUCKET, err });
+    return null;
+  }
+}
+
 /** Best-effort delete; missing objects are not an error. */
 export async function removeObjects(paths: string[]): Promise<void> {
   return removeFromBucket(LECTURES_BUCKET, paths);

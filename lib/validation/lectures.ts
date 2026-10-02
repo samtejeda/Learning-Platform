@@ -10,7 +10,7 @@ export const lectureFormSchema = z.object({
 
 /** Step 1 of an upload: what the professor is about to send. */
 export const createLectureSchema = lectureFormSchema.extend({
-  contentType: z.enum(LECTURE_MIME_TYPES, { error: "Only MP4, WebM, or MOV video files are accepted." }),
+  contentType: z.enum(LECTURE_MIME_TYPES, { error: "Only MP4 (H.264) video files are accepted. See docs/ENCODING.md." }),
   sizeBytes: z
     .number({ error: "File size is required." })
     .int()

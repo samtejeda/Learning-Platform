@@ -20,8 +20,6 @@ describe("lecture storage paths", () => {
     expect(lectureObjectPath(COURSE, LECTURE, "video/mp4")).toBe(
       `courses/${COURSE}/lectures/${LECTURE}/video.mp4`,
     );
-    expect(lectureObjectPath(COURSE, LECTURE, "video/webm")).toMatch(/video\.webm$/);
-    expect(lectureObjectPath(COURSE, LECTURE, "video/quicktime")).toMatch(/video\.mov$/);
   });
 
   it("refuses non-UUID ids so a path can never carry user input", () => {
@@ -31,6 +29,8 @@ describe("lecture storage paths", () => {
 
   it("only accepts the allowlisted container types", () => {
     expect(isLectureMimeType("video/mp4")).toBe(true);
+    expect(isLectureMimeType("video/webm")).toBe(false);
+    expect(isLectureMimeType("video/quicktime")).toBe(false);
     expect(isLectureMimeType("video/x-matroska")).toBe(false);
     expect(isLectureMimeType("text/html")).toBe(false);
     expect(isLectureMimeType(null)).toBe(false);
@@ -38,7 +38,7 @@ describe("lecture storage paths", () => {
   });
 
   it("has a sane upload ceiling", () => {
-    expect(LECTURE_MAX_BYTES).toBe(2 * 1024 ** 3);
+    expect(LECTURE_MAX_BYTES).toBe(1024 ** 3);
   });
 });
 

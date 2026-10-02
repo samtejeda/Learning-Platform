@@ -50,7 +50,7 @@ export function LectureUploadForm({ courseId, retryLectureId }: { courseId: stri
       return;
     }
     if (!(LECTURE_MIME_TYPES as readonly string[]).includes(file.type)) {
-      setFieldErrors({ file: ["Only MP4, WebM, or MOV video files are accepted."] });
+      setFieldErrors({ file: ["Only MP4 (H.264) video files are accepted. See docs/ENCODING.md."] });
       return;
     }
     if (file.size > LECTURE_MAX_BYTES) {
@@ -78,7 +78,13 @@ export function LectureUploadForm({ courseId, retryLectureId }: { courseId: stri
     const supabase = createClient();
     const { error: uploadError } = await supabase.storage
       .from(ticket.bucket)
-      .uploadToSignedUrl(ticket.path, ticket.token, file, { contentType: file.type, upsert: true });
+      .uploadToSignedUrl(ticket.path, ticket.token, file, {
+        contentType: file.type,
+        upsert: true,
+        // A lecture's object path is never rewritten once uploaded (retry only
+        // happens before finalize), so the CDN and browsers may keep it a year.
+        cacheControl: "31536000",
+      });
     if (uploadError) {
       setPhase("idle");
       setError(

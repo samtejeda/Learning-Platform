@@ -37,6 +37,8 @@ Until each item is done, the matching safety net is **not active**. Tick them of
 | `event` | Level | Meaning |
 |---|---|---|
 | `auth.sign_in_failed`, `auth.otp_verify_failed` | warn | Wrong credentials/code. A *spike* means someone is guessing. |
+| `lecture.stream_url_issued` | info | A student was handed a signed video URL (`lectureId` only). Rough egress = count x average lecture size; compare with Supabase billing (section 7). |
+| `lecture.upload_rejected` | info | An upload failed the encode gate (`reason`, plus codec/size/bitrate). A spike means professors need the preset in `docs/ENCODING.md`. |
 | `auth.rate_limited` | warn | A limit tripped (`scope`, `dimension: ip\|identifier`). A spike is an attack; a single one may be a real user. |
 | `auth.code_exchange_failed` | warn | An email link (confirm / reset) was expired or reused. |
 | `auth.sign_up_failed`, `auth.password_reset_failed`, `auth.update_password_failed` | error | Supabase Auth misbehaving. Also goes to Sentry. |
@@ -195,3 +197,13 @@ What is ours:
 - **Caching.** Per-user, permission-scoped queries are deliberately **not** cached across requests (a cache could show a student a course after they were unenrolled). Revisit only with real traffic numbers, and only for non-permissioned data.
 - **Video** is served by Supabase Storage via short-lived signed URLs, not through Vercel compute.
 - **Known blind spot:** `/api/health` checks Postgres and Supabase Auth only. It cannot see Twilio, Storage or Sentry.
+
+## 7. Video CDN check (Phase 0, run before choosing a CDN)
+
+Lecture URLs carry a per-request signed token, so a CDN that keys its cache on the full URL never hits. To measure what Supabase's Storage CDN does, with a real uploaded lecture and `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`:
+
+```
+pnpm cdn:verify -- courses/<courseId>/lectures/<lectureId>/video.mp4
+```
+
+It signs two URLs for the same object, fetches the first 1 KiB of each (repeating URL A), and prints `cf-cache-status` / `age`. **The line that matters is "different token still hits cache".** `true` means Supabase's CDN already ignores the token; `false` means it doesn't, and the fallback is a stable rounded signing window or a Cloudflare Worker keyed on the object path. Read-only; prints no URLs or tokens. Status: **(untested)** until run against a real object.
