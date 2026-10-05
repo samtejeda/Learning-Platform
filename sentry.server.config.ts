@@ -7,5 +7,5 @@ Sentry.init({
   ...sharedSentryOptions,
   // Same-named integration replaces the default; this one stops every request
   // being reported as a release-health session, which we don't use.
-  integrations: [Sentry.httpIntegration({ trackIncomingRequestsAsSessions: false })],
+  integrations: [Sentry.httpIntegration({ sessions: false })],
 });
