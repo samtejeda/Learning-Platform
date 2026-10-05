@@ -67,12 +67,13 @@ Have `frontend-builder` check new UI against `DESIGN.md` as part of its own defi
   - You'd need to add a paid third-party service, payment processing, or external integration not already in `CLAUDE.md`
   - You're genuinely unsure between two reasonable architectural approaches
 
-## Model handoff (Fable → Sonnet)
+## Model
 
-- Switching models mid-session with `/model sonnet` preserves full conversation context — nothing needs to be re-explained. Use Fable for the heaviest scaffolding work while credits last; when the low-balance prompt appears, just switch.
+- **Changed (Sam, 2026-10-05): build agents default to Sonnet, not Fable.** Each of the 6 `.claude/agents/*.md` files pins `model: sonnet` in frontmatter — same mechanism as the earlier Fable pin, so it holds regardless of the parent session's own model. `supervising-agent.md` has never pinned a model and is unaffected.
+- Switching models mid-session with `/model <name>` preserves full conversation context — nothing needs to be re-explained.
 - If a brand-new session starts days later, run `claude --continue` (same directory) or `/resume` to reattach to prior history when possible. `PROGRESS.md` is the fallback source of truth if history isn't picked up or has been compacted away.
-- Fable doesn't draw from the normal weekly subscription limit on this plan — it only bills against usage credits, so there's no risk of it eating into regular Sonnet/Opus quota. Pin it explicitly rather than relying on defaults: pick it once via `/model` (saves as the default for future sessions too), or force it per-launch with `claude --model fable`. For named subagents, set `model: fable` directly in each `.claude/agents/*.md` frontmatter so it's pinned per-agent regardless of the parent session. Watch the model name in the CLI occasionally — a safety-flagged message can silently fall back to a different model mid-session.
-- **Use the unversioned alias `fable`, not a specific dotted version like `claude-fable-5-1`.** The exact versioned ID is a real, current model per Anthropic's own API, but this installation's Claude Code build (2.1.274, confirmed 2026-09-17) rejected it as an unsupported model when used directly — the CLI's own `--help` documents `fable`/`opus`/`sonnet` as the supported alias form for "latest model in this tier," which resolves correctly without the client needing to recognize the exact dotted version. If a future Claude Code update starts accepting versioned IDs directly, this constraint may no longer apply — but the alias should keep working regardless, so there's little reason to switch back.
+- Watch the model name in the CLI occasionally — a safety-flagged message can silently fall back to a different model mid-session.
+- **Fable remains available if ever wanted again** for heavy scaffolding billed against usage credits rather than the weekly subscription limit. Use the unversioned alias `fable`, not a specific dotted version like `claude-fable-5-1`: this installation's Claude Code build (2.1.274, confirmed 2026-09-17) rejected the dotted form as unsupported, while the CLI's own `--help` documents `fable`/`sonnet`/`opus` as the supported alias form for "latest model in this tier." Set `model: fable` back on whichever agent file(s) if reverting.
 
 ## Named agents (13 domain prompts → 6 build agents)
 
