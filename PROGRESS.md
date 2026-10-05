@@ -289,6 +289,29 @@ To re-run the automated wire tests: `pnpm build && pnpm start -p 3111` in one te
 - **Decided (Sam, 2026-09-25): the syllabus stops rendering inline; tapping opens it, exactly like a course material file.** Reason: after testing on production (including on a phone), the embedded PDF box looked awkward. Behavior: the Syllabus card shows a button (for example "View syllabus (PDF)"); on tap the client fetches the signed URL from `GET /api/courses/[courseId]/syllabus` and opens it in a new tab (the browser's or phone's own viewer). No eager fetch on page load, and the URL is never rendered as a copyable `href`, the same pattern `components/course-materials-list.tsx` already uses for file materials. Supersedes the 2026-09-22 plan decision to render the syllabus in an `<iframe>` with a fallback link. **Scheduled for the frontend restyle pass of syllabus and materials, not built now** (the inline box stays until then). When the `<iframe>` goes, the `frame-src` directive added to the CSP for it in PR #21 is no longer needed (harmless if left; drop it then).
 - **Finding (2026-09-25): Instant Rollback silently turned off auto-assign of the production domain, so nothing merged after 2026-09-22 was live on the public address until it was fixed.** Evidence: Sam's phone screenshot showed the course page on `learning-platform-ruddy-seven.vercel.app` without the Syllabus card; `vercel inspect` of that domain resolved to deployment `5jgkiuiv3`, built 2026-09-22 from `f447eb1e` (before PR #21), while newer READY production deployments existed (latest built from `f0ba048b`); `GET /v9/projects/learning-platform` showed `autoAssignCustomDomains: false`, set by "system". Cause: the 2026-09-22 Instant Rollback test (see the availability-and-recovery re-score) disables auto-assignment, and promoting the latest deployment back that day did not re-enable it. Impact: merges #18 through #22 built fine but never reached the public domain. No student traffic existed, so no user impact. **Fixed 2026-09-25 (Sam said go):** `vercel promote` of the deployment built from `f0ba048b`, then `PATCH autoAssignCustomDomains=true`; verified the domain serves the new code (`/api/health` 200, new syllabus route returns JSON 401 signed out, `frame-src` present in the CSP). Lesson: GitHub's "Production deployment" records do not show what the public domain serves; verify with `vercel inspect <public domain>`. The `learning-platform-samtejedas-projects.vercel.app` team URL is behind Vercel login and is not the address students use. Runbook 4.1 updated.
 
+## Pre-launch checklist
+Anything that's decided and ready, but can't actually be done or tested until some later condition — a paid-plan upgrade, a domain, real launch traffic — lives here, not scattered across dated phase-log entries. **Standing instruction for every future session, build agent or supervising:** when you find or create a new item like this, add it here as its own line, in the right section (or a new one if it doesn't fit). When an item is done, strike it through with the date and a one-line pointer to the commit/PR that did it — don't delete the line, and don't let the fact live only in a phase log where the next session would have to grep for it.
+
+### Needs Supabase Pro active
+- Upload a real ~45-minute encoded lecture — blocked today by the free tier's 50 MB per-object Storage cap, independent of encoding quality (`docs/ENCODING.md`).
+- Re-run `pnpm cdn:verify` against that real upload, to confirm the Cloudflare Worker's hit rate on a realistic 500-675 MB file (only a 20 MiB test object has been measured so far — see "Video CDN Worker phase").
+- Set Supabase Cost Control to alert-only (not auto-pause, same reasoning as the Vercel budget below) — not configurable without a payment method on file.
+
+### Needs Vercel Pro active
+**Found 2026-10-05: still on Hobby**, confirmed live via `vercel teams ls` (`"plan": "hobby"`). The 2026-09-22 decision bundled Vercel Pro with Supabase Pro; only the Supabase half has been checked on since. This is not purely a launch-day item — the Hobby plan's non-commercial-use restriction, the reason this was flagged as a blocker in the first place, applies to the app as already deployed today.
+- Activate Vercel Pro (resolves the ToS restriction above).
+- Set a Vercel spend budget, alert-only (`vercel budgets set` fails on Hobby).
+- Re-verify Instant Rollback with full deployment history available (Hobby only keeps one deployment back).
+
+### Needs a domain (independent of either Pro upgrade)
+- Custom SMTP (Resend) for Supabase Auth's confirmation/reset emails — Supabase's default mailer is dev-only and project-wide rate-limited; every serious provider requires a verified domain before it'll send to anyone but the account owner.
+- A real origin for `NEXT_PUBLIC_SITE_URL` in place of the `*.vercel.app` one.
+
+### Still undecided, not platform-gated — revisit before real launch traffic
+- Whether to back up Storage objects in the `lectures` and `course-files` buckets (the nightly encrypted dump only covers the database).
+- A Cloudflare usage notification for the video CDN Worker (free plan caps at 100k requests/day, ~1,300 full lecture views/day).
+- Worker-side logging/Sentry, and an `/api/health` probe for the Worker (flagged by its own audit self-check; the Worker currently fails silently to anything but a broken player or the Cloudflare dashboard).
+
 ## Open questions for Sam
 - **Bilingual content: how to sequence PR #21 (unanswered 2026-09-24).** Recommendation: merge #21 as is (tested; the live DB already has migration 0007), then add the second language to syllabus and materials in a small follow-up before the frontend restyle, so the restyle is done once on the final shape. Alternative: rework inside #21, which delays its merge.
 - **Bilingual content: build now or later?** Logged as scope only; Sam has not asked for it to start.
