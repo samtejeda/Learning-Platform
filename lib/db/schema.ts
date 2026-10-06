@@ -10,8 +10,9 @@ import {
   uniqueIndex,
   index,
   jsonb,
+  check,
 } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 
 // ─── Access model ─────────────────────────────────────────────────────────────
 // Every table has Row Level Security enabled with NO policies (deny-all), and
@@ -36,6 +37,9 @@ export const questionTypeEnum = pgEnum("question_type", [
   "fill_in_the_blank",
   "short_essay",
 ]);
+
+// Content languages for bilingual (Spanish/English) academy content.
+export const contentLanguageEnum = pgEnum("content_language", ["es", "en"]);
 
 export const materialKindEnum = pgEnum("material_kind", ["file", "link"]);
 
@@ -250,23 +254,44 @@ export const lectureProgress = pgTable(
 ).enableRLS();
 
 // ─── Exams ────────────────────────────────────────────────────────────────────
+// Bilingual from day one (Sam, 2026-09-24): every professor-authored string
+// exists as an `_es` and an `_en` column. Drafts may be incomplete; publish
+// requires both (lib/exams/publish-rules.ts, re-checked inside the publish
+// transaction). Exams are NEVER auto-graded: the multiple-choice/true-false
+// key below is shown only to the professor next to the student's answer.
+// Structure is frozen once any attempt exists (see lib/data/exams.ts).
 
-export const exams = pgTable("exams", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  courseId: uuid("course_id")
-    .notNull()
-    .references(() => courses.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  description: text("description"),
-  // null = draft; set by professor to publish
-  publishedAt: timestamp("published_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-}).enableRLS();
+export const exams = pgTable(
+  "exams",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    courseId: uuid("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    titleEs: text("title_es"),
+    titleEn: text("title_en"),
+    descriptionEs: text("description_es"),
+    descriptionEn: text("description_en"),
+    // Per-student attempt cap (default 2). Extra attempts for one student are
+    // a later pass (an additive grant table); nothing here blocks it.
+    maxAttempts: integer("max_attempts").notNull().default(2),
+    // Server-enforced time limit per attempt, counted from startedAt.
+    durationMinutes: integer("duration_minutes").notNull().default(20),
+    // null = draft; set by professor to publish
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("exams_course_idx").on(t.courseId),
+    check("exams_max_attempts_range", sql`${t.maxAttempts} between 1 and 10`),
+    check("exams_duration_range", sql`${t.durationMinutes} between 1 and 480`),
+  ]
+).enableRLS();
 
 // ─── Exam Questions ───────────────────────────────────────────────────────────
 
@@ -277,21 +302,39 @@ export const examQuestions = pgTable(
     examId: uuid("exam_id")
       .notNull()
       .references(() => exams.id, { onDelete: "cascade" }),
+    // Fixed at creation; never changes afterwards.
     type: questionTypeEnum("type").notNull(),
-    prompt: text("prompt").notNull(),
-    // For multiple_choice: string[] of options. Null for other types.
-    optionsJson: jsonb("options_json"),
-    // Reference answer — only used by professor during grading, never sent to students
-    referenceAnswer: text("reference_answer"),
+    promptEs: text("prompt_es"),
+    promptEn: text("prompt_en"),
+    // multiple_choice only: string[] per language, same length in both
+    // (enforced at publish). Null for every other type.
+    optionsEs: jsonb("options_es"),
+    optionsEn: jsonb("options_en"),
+    // Answer key BY POSITION, so correctness never depends on the language
+    // shown. multiple_choice: index into the options. true_false: 0 = true,
+    // 1 = false. Null for fill_in_the_blank / short_essay. Professor-only.
+    correctOption: integer("correct_option"),
+    // Optional grading guide for fill_in_the_blank / short_essay. Professor-only,
+    // never selected by any student-facing query.
+    referenceAnswerEs: text("reference_answer_es"),
+    referenceAnswerEn: text("reference_answer_en"),
     order: integer("order").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("exam_questions_exam_order_idx").on(t.examId, t.order)]
+  (t) => [
+    index("exam_questions_exam_order_idx").on(t.examId, t.order),
+    check("exam_questions_correct_option_nonneg", sql`${t.correctOption} is null or ${t.correctOption} >= 0`),
+  ]
 ).enableRLS();
 
-// ─── Exam Submissions ─────────────────────────────────────────────────────────
+// ─── Exam Submissions (one row per attempt) ───────────────────────────────────
+// startAttempt creates the row (startedAt, language fixed for the attempt);
+// submittedAt stays null while in progress. An attempt past its deadline is
+// closed lazily on the next read/submit with submittedAt = the deadline —
+// there is no cron. The grade of record for a student is the HIGHEST graded
+// attempt (computed in queries, not stored).
 
 export const examSubmissions = pgTable(
   "exam_submissions",
@@ -303,10 +346,14 @@ export const examSubmissions = pgTable(
     studentId: uuid("student_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    submittedAt: timestamp("submitted_at", { withTimezone: true })
+    attemptNumber: integer("attempt_number").notNull(),
+    // Language the student read and answered this attempt in.
+    language: contentLanguageEnum("language").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
-    // Professor-assigned grade and feedback after manual grading
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
+    // Professor-assigned grade (0–100) and feedback after manual grading
     grade: real("grade"),
     feedback: text("feedback"),
     gradedAt: timestamp("graded_at", { withTimezone: true }),
@@ -315,26 +362,51 @@ export const examSubmissions = pgTable(
     }),
   },
   (t) => [
-    // One submission per student per exam
-    uniqueIndex("exam_submissions_student_exam_idx").on(t.studentId, t.examId),
+    uniqueIndex("exam_submissions_student_exam_attempt_idx").on(
+      t.studentId,
+      t.examId,
+      t.attemptNumber
+    ),
+    index("exam_submissions_exam_idx").on(t.examId),
+    check("exam_submissions_grade_range", sql`${t.grade} is null or ${t.grade} between 0 and 100`),
   ]
 ).enableRLS();
 
 // ─── Exam Answers ─────────────────────────────────────────────────────────────
+// multiple_choice / true_false store the chosen position in selectedOption;
+// fill_in_the_blank / short_essay store plain text in answerText. Exactly one.
 
-export const examAnswers = pgTable("exam_answers", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  submissionId: uuid("submission_id")
-    .notNull()
-    .references(() => examSubmissions.id, { onDelete: "cascade" }),
-  questionId: uuid("question_id")
-    .notNull()
-    .references(() => examQuestions.id, { onDelete: "cascade" }),
-  answerText: text("answer_text").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-}).enableRLS();
+export const examAnswers = pgTable(
+  "exam_answers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    submissionId: uuid("submission_id")
+      .notNull()
+      .references(() => examSubmissions.id, { onDelete: "cascade" }),
+    questionId: uuid("question_id")
+      .notNull()
+      .references(() => examQuestions.id, { onDelete: "cascade" }),
+    answerText: text("answer_text"),
+    selectedOption: integer("selected_option"),
+    // Optional professor comment on this one answer.
+    feedback: text("feedback"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("exam_answers_submission_question_idx").on(t.submissionId, t.questionId),
+    index("exam_answers_question_idx").on(t.questionId),
+    check(
+      "exam_answers_one_value",
+      sql`(${t.answerText} is not null)::int + (${t.selectedOption} is not null)::int = 1`
+    ),
+    check("exam_answers_option_nonneg", sql`${t.selectedOption} is null or ${t.selectedOption} >= 0`),
+  ]
+).enableRLS();
 
 // ─── Assignments ──────────────────────────────────────────────────────────────
 
