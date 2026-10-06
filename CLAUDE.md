@@ -71,7 +71,7 @@ All role checks happen **server-side only**. Never trust the client for permissi
 - Section only appears in UI when an exam has been published
 - **Bilingual (es/en) from day one:** every title, prompt, option and grading guide has an `_es` and an `_en` column. Drafts may be incomplete; **publish requires both languages** (`lib/exams/publish-rules.ts`, re-checked in the publish transaction). Multiple-choice and true/false keys are stored **by position**, so correctness never depends on the language shown. The language a student answered in is recorded per attempt. Exam wording is professor-authored; agents never write or translate it.
 - **Attempts and time:** default 2 attempts and a 20-minute window per exam (`max_attempts`, `duration_minutes`), enforced on the server (the browser countdown is cosmetic). Answers autosave; an expired attempt is closed lazily with what was saved. The student's grade of record is the **highest** graded attempt.
-- **Frozen after the first attempt:** structure is editable only while the exam is a draft; unpublish/delete are refused once any attempt exists.
+- **Frozen after the first attempt (TEMPORARY, to be reversed):** as built, structure is editable only while the exam is a draft; unpublish/delete are refused once any attempt exists. Sam wants professors able to edit exams anytime (typos, wrong keys); that is a pending later pass, see `PROGRESS.md` ("Exams phase").
 - `correct_option` and `reference_answer_*` are selected only by `lib/data/exams.ts` (professor DTOs), never by `lib/data/exam-attempts.ts` (student).
 
 ### Assignments
