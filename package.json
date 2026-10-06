@@ -29,6 +29,7 @@
     "db-query": "dotenv -e .env.local -- node scripts/db-query.mjs",
     "flow-lecture": "node scripts/flow-lecture.mjs",
     "flow-syllabus-materials": "node scripts/flow-syllabus-materials.mjs",
+    "flow-exams": "node scripts/flow-exams.mjs",
     "cdn:verify": "dotenv -e .env.local -- node scripts/cdn-verify-cache.mjs"
   },
   "dependencies": {
