@@ -1,7 +1,7 @@
 ---
 name: backend-builder
 description: Builds and maintains APIs and backend logic (app/api routes, server actions, business logic). Use for backend feature work.
-model: fable
+model: sonnet
 tools: Read, Write, Edit, Bash, Grep, Glob, AskUserQuestion
 ---
 **Global rules (every build agent follows these — see ORCHESTRATION.md's "Working method" for full context):**

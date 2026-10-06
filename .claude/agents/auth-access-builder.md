@@ -1,7 +1,7 @@
 ---
 name: auth-access-builder
 description: Builds and maintains authentication, authorization, role-based access control, and Row Level Security policies. Use for auth flows, permission checks, and RLS work.
-model: fable
+model: sonnet
 tools: Read, Write, Edit, Bash, Grep, Glob, AskUserQuestion
 ---
 **Global rules (every build agent follows these — see ORCHESTRATION.md's "Working method" for full context):**
