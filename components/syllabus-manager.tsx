@@ -7,7 +7,9 @@ import { finalizeSyllabusUpload, removeSyllabus, uploadSyllabus } from "@/lib/sy
 import { COURSE_FILE_MAX_BYTES, SYLLABUS_MIME_TYPES } from "@/lib/storage/paths";
 import { FieldShell, controlAria } from "@/components/ui/field";
 import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { FileInput } from "@/components/ui/file-input";
 import { ProgressBar } from "@/components/ui/progress-bar";
 
 type Phase = "idle" | "creating" | "uploading" | "finalizing" | "removing" | "done";
@@ -108,12 +110,25 @@ export function SyllabusManager({
     <div className="space-y-4">
       {error && <Alert tone="error">{error}</Alert>}
       {phase === "done" && <Alert tone="success">Syllabus uploaded.</Alert>}
-      {uploadedAt && (
-        <p className="text-sm text-muted">
-          Current syllabus uploaded {new Date(uploadedAt).toLocaleDateString()}. Uploading a new PDF replaces
-          it.
-        </p>
-      )}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        {uploadedAt ? (
+          <>
+            <Badge tone="success">Visible to students</Badge>
+            <span className="text-sm text-muted">
+              Uploaded{" "}
+              <time dateTime={uploadedAt} suppressHydrationWarning>
+                {new Date(uploadedAt).toLocaleDateString(undefined, { dateStyle: "medium" })}
+              </time>
+              . Uploading a new PDF replaces it.
+            </span>
+          </>
+        ) : (
+          <>
+            <Badge tone="outline">Not uploaded</Badge>
+            <span className="text-sm text-muted">Students won&apos;t see a syllabus until you upload one.</span>
+          </>
+        )}
+      </div>
 
       <form onSubmit={onSubmit} className="space-y-4" noValidate>
         <FieldShell
@@ -122,14 +137,12 @@ export function SyllabusManager({
           errors={fieldErrors.file}
           hint="PDF only."
         >
-          <input
+          <FileInput
             ref={fileRef}
-            type="file"
             name="file"
             accept={SYLLABUS_MIME_TYPES.join(",")}
             required
             disabled={busy}
-            className="block w-full rounded-md border border-dashed border-hairline bg-canvas p-2 text-sm text-body file:mr-3 file:rounded-sm file:border-0 file:bg-surface-cream-strong file:px-3 file:py-2 file:text-sm file:font-medium file:text-ink hover:file:bg-hairline focus:focus-ring disabled:opacity-60 aria-[invalid=true]:border-error"
             {...controlAria(fileId, fieldErrors.file, "hint")}
           />
         </FieldShell>

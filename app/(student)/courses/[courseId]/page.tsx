@@ -101,7 +101,7 @@ export default async function StudentCoursePage({
       {course.hasSyllabus && (
         <Card>
           <CardTitle>Syllabus</CardTitle>
-          <div className="mt-4">
+          <div className="mt-2">
             <SyllabusViewer courseId={course.id} />
           </div>
         </Card>
@@ -109,10 +109,13 @@ export default async function StudentCoursePage({
 
       {course.materials.length > 0 && (
         <Card>
-          <CardTitle>Course materials</CardTitle>
-          <div className="mt-4">
-            <CourseMaterialsList materials={course.materials} />
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <CardTitle>Course materials</CardTitle>
+            <span className="text-sm tabular-nums text-muted">
+              {course.materials.length} {course.materials.length === 1 ? "item" : "items"}
+            </span>
           </div>
+          <CourseMaterialsList materials={course.materials} />
         </Card>
       )}
     </div>
