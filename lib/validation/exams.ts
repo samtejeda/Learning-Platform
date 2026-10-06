@@ -125,8 +125,9 @@ export const gradeSchema = z.object({
     .string({ error: "Grade is required." })
     .trim()
     .min(1, "Grade is required.")
+    .transform((v) => Number(v))
     .pipe(
-      z.coerce
+      z
         .number({ error: "Grade must be a number." })
         .min(0, "Grade must be between 0 and 100.")
         .max(100, "Grade must be between 0 and 100."),
