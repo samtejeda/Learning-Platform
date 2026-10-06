@@ -79,8 +79,8 @@ export default async function ProfessorCoursePage({
           uploadedAt={course.syllabusUploadedAt ? course.syllabusUploadedAt.toISOString() : null}
         />
         {course.syllabusUploadedAt && (
-          <div className="mt-6 border-t border-hairline pt-6">
-            <p className="mb-3 text-sm font-medium text-ink">Preview</p>
+          <div className="mt-6 border-t border-hairline pt-4">
+            <p className="mb-1 text-sm font-medium text-ink">Preview</p>
             <SyllabusViewer courseId={course.id} />
           </div>
         )}

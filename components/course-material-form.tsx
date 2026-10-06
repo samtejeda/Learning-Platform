@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { createMaterial, finalizeMaterialUpload, retryMaterialUpload } from "@/lib/course-materials/actions";
 import { COURSE_FILE_MAX_BYTES, COURSE_FILE_MIME_TYPES } from "@/lib/storage/paths";
-import { Field, FieldShell, SelectField, TextareaField, controlAria } from "@/components/ui/field";
+import { Field, FieldShell, TextareaField, controlAria } from "@/components/ui/field";
+import { FileInput } from "@/components/ui/file-input";
+import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/ui/progress-bar";
@@ -134,7 +136,6 @@ export function CourseMaterialForm({
   const busy = phase !== "idle" && phase !== "done";
   const fileId = `${id}-file`;
   const urlId = `${id}-url`;
-  const kindId = `${id}-kind`;
   const fileError = fieldErrors.file;
 
   return (
@@ -144,17 +145,17 @@ export function CourseMaterialForm({
 
       {!retryMaterialId && (
         <>
-          <SelectField
-            label="Type"
+          <SegmentedRadio
+            legend="Type"
             name="kind"
-            id={kindId}
             value={kind}
-            onChange={(e) => setKind(e.target.value as Kind)}
+            onChange={setKind}
             disabled={busy}
-          >
-            <option value="file">Upload a file</option>
-            <option value="link">Add a link</option>
-          </SelectField>
+            options={[
+              { value: "file", label: "Upload a file" },
+              { value: "link", label: "Add a link" },
+            ]}
+          />
           <Field
             label="Title"
             name="title"
@@ -184,15 +185,13 @@ export function CourseMaterialForm({
           errors={fileError}
           hint="PDF, image, video, or Word/PowerPoint document. Up to 2 GB (check your project's plan for the per-file limit)."
         >
-          <input
+          <FileInput
             ref={fileRef}
-            type="file"
             name="file"
             accept={COURSE_FILE_MIME_TYPES.join(",")}
             required
             disabled={busy}
             onChange={(e) => setFileName(e.target.files?.[0]?.name ?? null)}
-            className="block w-full rounded-md border border-dashed border-hairline bg-canvas p-2 text-sm text-body file:mr-3 file:rounded-sm file:border-0 file:bg-surface-cream-strong file:px-3 file:py-2 file:text-sm file:font-medium file:text-ink hover:file:bg-hairline focus:focus-ring disabled:opacity-60 aria-[invalid=true]:border-error"
             {...controlAria(fileId, fileError, "hint")}
           />
         </FieldShell>

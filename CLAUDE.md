@@ -58,7 +58,7 @@ All role checks happen **server-side only**. Never trust the client for permissi
 ### Syllabus
 - One PDF per course, stored in the private `course-files` Storage bucket at a fixed, deterministic path (re-uploading replaces it in place)
 - **No publish step** — uploading it makes it visible to students immediately (asymmetric with Course Materials on purpose)
-- Currently renders inline via `<iframe>` with an "Open in new tab" link. **Decided 2026-09-25 to change:** a tap-to-open button that behaves like a course material file (signed URL fetched on tap, opened in a new tab), no inline box. Scheduled for the frontend restyle pass; see `PROGRESS.md`.
+- Tap-to-open button that behaves like a course material file (signed URL fetched on tap, opened in a new tab); no inline embed and no `frame-src` CSP directive (decided 2026-09-25, built in the 2b restyle pass).
 
 ### Course Materials
 - A list of general, course-level resources not tied to any one lecture: an uploaded file (PDF, document, image, or video) or an external link
@@ -117,9 +117,9 @@ Route groups don't appear in URLs, so each role's surface gets a distinct URL pr
 │   ├── ui/                     # Button, SubmitButton, Input, Field, Card, Alert
 │   ├── app-shell.tsx           # Authenticated chrome (nav + sign-out)
 │   ├── course-form.tsx, roster-manager.tsx, lecture-upload-form.tsx, lecture-list-manager.tsx  # plain professor UI
-│   ├── syllabus-manager.tsx, syllabus-viewer.tsx  # upload/replace/remove; inline <iframe> + "open in new tab"
+│   ├── syllabus-manager.tsx, syllabus-viewer.tsx  # upload/replace/remove; tap-to-open button (no inline embed)
 │   ├── course-material-form.tsx, course-materials-manager.tsx, course-materials-list.tsx  # plain professor + student UI
-│   ├── course-files/           # use-signed-file-url.ts: shared client hook for the two signed-URL routes above
+│   ├── course-files/           # use-open-signed-file.ts + file-row.tsx: the one tap-to-open pattern (fetch signed URL on tap, open in new tab) for the two signed-URL routes above
 │   ├── video-player/           # lecture-player.tsx: no native controls, seeks only into server-accepted ranges
 │   ├── exam-builder/           # (next phase)
 │   └── forum/                  # (next phase)

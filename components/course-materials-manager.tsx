@@ -22,6 +22,16 @@ const STATUS: Record<
   published: { label: "Published", tone: "success" },
 };
 
+/** Hostname of a stored link URL for the row meta (never fetched). */
+function linkHost(url: string | null): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Professor's course-material list: type + status badges, move up/down,
  * edit, publish/unpublish, retry a pending file upload, delete. Mirrors
@@ -74,7 +84,13 @@ export function CourseMaterialsManager({
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
                     <Badge tone={status.tone}>{status.label}</Badge>
                     <Badge tone="outline">{materialTypeLabel(material.kind, material.mimeType)}</Badge>
+                    {material.kind === "link" && linkHost(material.url) && (
+                      <span className="max-w-full truncate">{linkHost(material.url)}</span>
+                    )}
                   </div>
+                  {material.description && (
+                    <p className="mt-1 line-clamp-2 text-xs text-muted">{material.description}</p>
+                  )}
                 </div>
                 <div className="flex shrink-0 items-center" role="group" aria-label={`Reorder ${material.title}`}>
                   <button
