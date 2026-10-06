@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { getCourseForProfessor } from "@/lib/data/courses";
+import { listExamsForProfessor } from "@/lib/data/exams";
+import { createExam } from "@/lib/exams/actions";
 import { inviteStudent, removeStudent, revokeInvitation } from "@/lib/enrollments/actions";
 import { Card, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
@@ -15,6 +17,8 @@ import { SyllabusManager } from "@/components/syllabus-manager";
 import { SyllabusViewer } from "@/components/syllabus-viewer";
 import { CourseMaterialsManager } from "@/components/course-materials-manager";
 import { CourseMaterialForm } from "@/components/course-material-form";
+import { ExamForm } from "@/components/exams/exam-form";
+import { Badge } from "@/components/ui/badge";
 
 const paramsSchema = z.object({ courseId: z.uuid() });
 
@@ -31,6 +35,8 @@ export default async function ProfessorCoursePage({
   const course = await getCourseForProfessor(parsed.data.courseId, user);
   if (!course) notFound();
 
+  // Ownership already verified by getCourseForProfessor above.
+  const examList = await listExamsForProfessor(course.id);
   const published = course.lectures.filter((l) => l.status === "published").length;
   const enrolledCount = course.roster.enrolled.length;
   const invitedCount = course.roster.invited.length;
@@ -105,6 +111,33 @@ export default async function ProfessorCoursePage({
           materials.
         </p>
         <CourseMaterialForm courseId={course.id} />
+      </Card>
+
+      <Card>
+        <CardTitle>Exams</CardTitle>
+        {examList.length === 0 ? (
+          <p className="mt-2 text-sm text-muted">No exams yet.</p>
+        ) : (
+          <ul className="mt-3 divide-y divide-hairline">
+            {examList.map((e) => (
+              <li key={e.id} className="flex flex-wrap items-center gap-2 py-3">
+                <Link href={`/professor/exams/${e.id}`} className="min-w-0 flex-1 truncate font-medium hover:underline">
+                  {e.titleEn || e.titleEs || "Untitled exam"}
+                </Link>
+                <Badge tone={e.status === "published" ? "success" : "outline"}>{e.status === "published" ? "Published" : "Draft"}</Badge>
+                <span className="text-xs text-muted">{e.questionCount} questions · {e.durationMinutes} min · {e.maxAttempts} attempts</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      <Card variant="outlined">
+        <CardTitle>Add an exam</CardTitle>
+        <p className="mb-5 mt-1 text-sm text-muted">
+          Start a draft, add questions in both languages, then publish. Students only see published exams.
+        </p>
+        <ExamForm action={createExam.bind(null, course.id)} submitLabel="Create draft" />
       </Card>
 
       <Card>

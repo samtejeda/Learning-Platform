@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { z } from "zod";
 import { requireUser } from "@/lib/auth/session";
 import { getCourseForStudent } from "@/lib/data/courses";
+import { listExamsForStudent } from "@/lib/data/exam-attempts";
+import { DEFAULT_CONTENT_LANGUAGE } from "@/lib/exams/language";
 import { Card, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { BackLink } from "@/components/ui/back-link";
@@ -31,9 +33,11 @@ export default async function StudentCoursePage({
   const course = await getCourseForStudent(parsed.data.courseId, user.id);
   if (!course) notFound();
 
+  // Enrollment already verified above; the query re-checks it and the published filter.
+  const examList = await listExamsForStudent(course.id, user.id, DEFAULT_CONTENT_LANGUAGE);
   const total = course.lectures.length;
   const done = course.lectures.filter((l) => l.completed).length;
-  const hasAnyContent = total > 0 || course.hasSyllabus || course.materials.length > 0;
+  const hasAnyContent = total > 0 || course.hasSyllabus || course.materials.length > 0 || examList.length > 0;
 
   return (
     <div className="space-y-6 sm:space-y-8">
@@ -91,6 +95,34 @@ export default async function StudentCoursePage({
                       </svg>
                     </span>
                   )}
+                </Link>
+              </li>
+            ))}
+          </DataList>
+        </Card>
+      )}
+
+      {examList.length > 0 && (
+        <Card>
+          <CardTitle>Exams</CardTitle>
+          <DataList>
+            {examList.map((e) => (
+              <li key={e.id}>
+                <Link
+                  href={`/courses/${course.id}/exams/${e.id}`}
+                  className="-mx-2 flex min-h-14 items-center gap-3 rounded-md px-2 py-3 hover:bg-surface-cream-strong/60 focus-visible:focus-ring"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[15px] font-medium text-ink">{e.title ?? "Exam"}</div>
+                    <div className="mt-0.5 text-xs text-muted">
+                      {e.durationMinutes} min · {e.attemptsUsed} of {e.maxAttempts} attempts used
+                    </div>
+                  </div>
+                  {e.gradeOfRecord !== null ? (
+                    <Badge tone="success">Grade: {e.gradeOfRecord}</Badge>
+                  ) : e.openAttemptId ? (
+                    <Badge tone="neutral">In progress</Badge>
+                  ) : null}
                 </Link>
               </li>
             ))}
