@@ -298,6 +298,8 @@ components:
     padding: 64px
 ---
 
+> **Color note (2026-10-06):** this file's hex values are the *terracotta* palette only. The platform now supports swappable palettes (default `blue`), set by `COLOR_PALETTE`. The real color source of truth is `app/palettes.css` + `app/globals.css`; see `design/PALETTES.md`. Everything else here (type, spacing, radius, components) still applies unchanged.
+
 ## Overview
 
 Claude.com is the warmest, most editorial interface in the AI-product category. The base atmosphere is a **tinted cream canvas** (`{colors.canvas}` — #faf9f5) — distinctly warm, deliberately not the cool gray-white that every other AI brand uses. Headlines run a **slab-serif display** ("Copernicus" / Tiempos Headline) at weight 400 with negative letter-spacing, paired with **StyreneB / Inter** body sans. The combination feels like a literary publication, not a SaaS marketing page.
