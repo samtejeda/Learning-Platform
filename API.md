@@ -33,6 +33,7 @@ Tests that back these conventions: `pnpm test` (pure logic), `pnpm test:integrat
 | `POST /api/lectures/[lectureId]/progress` | `isSameOrigin` (403) → `assertUser` → enrollment + published inside `recordProgress` | `lecture_progress` / user id + IP | JSON `progressSegmentSchema` `{ from, to, position? }` (strict; seconds) | `{ accepted, percent, completed, watchedSeconds, intervals, justCompleted }` | Server merges the segment into watched ranges under `lib/progress/policy.ts`: >20 s or malformed → 400; faster-than-wall-clock → 200 `{ accepted:false, reason:"too_fast" }` (ignored, not credited); no duration yet → 409. Row locked `FOR UPDATE` in a transaction. Professors previewing get 404 (no progress recorded). |
 | `GET /api/courses/[courseId]/syllabus` | `assertUser` + `getSyllabusForViewer` (student: enrolled **and** a syllabus exists; owning professor/admin: any time one exists) | `course_file` / user id (30/min) + IP (120/min) | path id (`uuidSchema`) | `{ url, expiresAt }` (30-min signed URL), `Cache-Control: no-store` | Not-enrolled, no-syllabus-yet, and unknown course ids are all 404. 503 `storage_unavailable` if signing fails. |
 | `GET /api/course-materials/[materialId]` | `assertUser` + `getMaterialForViewer` (student: enrolled **and** published **and** kind='file'; owning professor/admin: any status, kind='file' only) | `course_file` / user id + IP | path id (`uuidSchema`) | `{ url, expiresAt }` (30-min signed URL), `Cache-Control: no-store` | Not-enrolled, unpublished, unknown, and **link-kind** materials are all 404 — a link has no server object; its `url` is already in the page data and rendered as a plain outbound `<a>`, never proxied or fetched server-side (no SSRF surface). 503 `storage_unavailable` if signing fails. |
+| `PUT /api/exams/attempts/[attemptId]/answers` | `isSameOrigin` (403) → `assertUser` → the attempt must be the caller's own, caller still enrolled, exam published (all inside `saveAttemptAnswers`) | `exam_autosave` / user id (30/min) + IP (600/min) | path id (`uuidSchema`) + JSON `answersSchema` `{ answers: [{ questionId, selectedOption? \| answerText? }] }` (strict) | `{ saved: true, deadline }`, `Cache-Control: no-store` | Autosave for an in-progress attempt: replaces the saved answers with the posted set (partial is fine). Per-type checks run against the real question rows (position in range for the attempt's language, text length caps). Deadline enforced here: past it the attempt is closed with what was already saved and the call returns 409 `expired`. 409 `already_submitted`. Not-yours/unknown/not-enrolled = 404. Response never includes keys. |
 
 ## Server actions (`lib/auth/actions.ts`)
 
@@ -104,6 +105,24 @@ General course-level resources: a file (PDF/doc/image/video) or an external link
 | `reorderMaterials(courseId, input)` | owner of course | `reorderMaterialsSchema` (unique uuids, ≤ 500) | `ActionState` | The list must cover exactly the course's materials; applied in one transaction or not at all. |
 | `deleteMaterial(materialId)` | owner | `uuidSchema` | `ActionState` | Removes the Storage object first for file kind (logged if that fails), then the row. Link kind never touches Storage. |
 
+## Server actions (`lib/exams/actions.ts`)
+
+Exams are bilingual (es/en) and **never auto-graded**: nothing here computes a score. Structure (exam fields, questions, order) is editable only while the exam is a **draft**; an exam can be unpublished or deleted only while **no attempt exists** (see `lib/data/exams.ts`). Student responses never include `correct_option` or `reference_answer_*` (`lib/data/exam-attempts.ts` does not select them; `lib/exams/exams.integration.test.ts` asserts no key appears in any student payload).
+
+| Action | Auth | Rate limit | Schema | On success | Notes |
+|---|---|---|---|---|---|
+| `createExam(courseId, prev, fd)` | `assertRole("professor","admin")` + `findOwnedCourse` | — | `examFormSchema` (titles/descriptions es+en optional while drafting, `maxAttempts` 1–10, `durationMinutes` 1–480) | `redirect(/professor/exams/<id>)` | Defaults: 2 attempts, 20 minutes. |
+| `updateExam(examId, prev, fd)` | owner (ownership joined in the query) | — | `examFormSchema` | `{ success }` | Draft only; "locked" error once published. |
+| `deleteExam(examId)` | owner | — | `uuidSchema` | `redirect(course page)` | Refused if any attempt exists. |
+| `publishExam(examId)` | owner | — | `uuidSchema` | `{ success }` | Bilingual gate re-run inside the transaction that locks the exam row (`lib/exams/publish-rules.ts`): both titles, ≥ 1 question, both prompts per question, multiple choice 2–6 non-empty options with equal counts in both languages and a key in range, true/false key. Failure returns the list in `fieldErrors._publish`. |
+| `unpublishExam(examId)` | owner | — | `uuidSchema` | `{ success }` | Refused once any attempt exists. |
+| `createQuestion(examId, prev, fd)` | owner | — | `createQuestionSchema` (type fixed at creation) | `{ success }` | Fields not used by the type are discarded (`normalizeQuestionFields`). Key stored by position. Draft only; ≤ 200 questions. |
+| `updateQuestion(questionId, prev, fd)` / `deleteQuestion(questionId)` | owner (through the exam's course) | — | `questionFieldsSchema` / `uuidSchema` | `{ success }` | Draft only. |
+| `reorderQuestions(examId, input)` | owner | — | `reorderQuestionsSchema` | `{ success }` | Must cover exactly the exam's questions, one transaction. Draft only. |
+| `gradeSubmission(submissionId, prev, fd)` | owner (through the exam's course) | — | `gradeSchema`: `grade` 0–100 (blank is not 0), `feedback`, one `comment:<questionId>` per answer | `{ success }` | Manual grading for every question type. Only a submitted attempt can be graded; each attempt is graded separately and the student's grade of record is the **highest** graded attempt (computed in queries). |
+| `startExamAttempt(examId, courseId, prev, fd)` | `assertUser` + enrollment + published (inside `startAttempt`) | `exam_attempt` / user id (20/h) + IP (300/h) | `startAttemptSchema` (`language` es/en) | `redirect(attempt page)` | Resumes an open attempt (its language is fixed); otherwise creates attempt N+1 up to `maxAttempts`; serialised per student+exam by an advisory lock. The 20-minute (per-exam) clock starts here. |
+| `submitExamAttempt(attemptId, input)` | `assertUser`; attempt must be the caller's own | `exam_attempt` | `answersSchema` + per-type checks vs the real questions | `{ success }` | Every question must be answered. Past deadline + 30 s grace the attempt is closed at its deadline with the autosaved answers and the call returns an error. No cron: expired attempts are closed lazily on the next read/submit. |
+
 ## Pages with data access (for completeness; not APIs)
 
 Pages are gated three times: proxy prefix rule → route-group layout (`requireUser`/`requireRole`) → the page itself, plus the query. See CLAUDE.md "Authorization chain".
@@ -112,14 +131,19 @@ Pages are gated three times: proxy prefix rule → route-group layout (`requireU
 |---|---|---|
 | `/` | — | redirects by role or to `/login` |
 | `/dashboard` | any signed-in user | `listEnrolledCourses(userId)` |
-| `/courses/[courseId]` | any signed-in user | `getCourseForStudent(courseId, userId)` (enrollment; 404 otherwise; **published** lectures/materials only, with the student's own lecture progress; `hasSyllabus` boolean, never the storage path). Renders `components/syllabus-viewer.tsx` and `components/course-materials-list.tsx`, which call the two route handlers below. |
+| `/courses/[courseId]` | any signed-in user | `getCourseForStudent(courseId, userId)` (enrollment; 404 otherwise; **published** lectures/materials only, with the student's own lecture progress; `hasSyllabus` boolean, never the storage path). The page also calls `listExamsForStudent(courseId, userId, language)` (enrolled + published only). Renders `components/syllabus-viewer.tsx` and `components/course-materials-list.tsx`, which call the two route handlers below. |
 | `/courses/[courseId]/lectures/[lectureId]` | any signed-in user | `getLectureForViewer(lectureId, actor)` (enrolled + published, or course owner preview; lecture must belong to `courseId`; 404 otherwise). Renders `components/video-player/lecture-player.tsx`, which calls the two `/api/lectures/*` handlers. |
+| `/courses/[courseId]/exams/[examId]` | any signed-in user | `getExamLandingForStudent(examId, userId, language)` (enrolled + published; 404 otherwise; exam must belong to `courseId`) |
+| `/courses/[courseId]/exams/[examId]/attempt/[attemptId]` | any signed-in user | `getAttemptForStudent(attemptId, userId)` (own attempt + enrolled; grade/feedback only once graded; never keys). Renders `components/exams/exam-attempt-form.tsx`, which calls the autosave handler and `submitExamAttempt`. |
 | `/professor` | professor, admin | `listTaughtCourses(userId)` / admin: `listAllCourses()` |
 | `/professor/courses/new` | professor, admin | — (form → `createCourse`) |
-| `/professor/courses/[courseId]` | professor, admin | `getCourseForProfessor(courseId, actor)` (ownership; 404 otherwise; all lectures/materials with status + roster + `syllabusUploadedAt`) |
+| `/professor/courses/[courseId]` | professor, admin | `getCourseForProfessor(courseId, actor)` (ownership; 404 otherwise; all lectures/materials with status + roster + `syllabusUploadedAt`); the page also calls `listExamsForProfessor(courseId)` after that check |
 | `/professor/courses/[courseId]/edit` | professor, admin | `getCourseForProfessor` (form → `updateCourse`) |
 | `/professor/lectures/[lectureId]/edit` | professor, admin | `getOwnedLecture(lectureId, actor)` (ownership via course join; form → `updateLecture`) |
 | `/professor/materials/[materialId]/edit` | professor, admin | `getOwnedMaterial(materialId, actor)` (ownership via course join; form → `updateMaterial`) |
+| `/professor/exams/[examId]` | professor, admin | `getOwnedExam(examId, actor)` (ownership via course join; includes keys, professor-only) |
+| `/professor/exams/[examId]/submissions` | professor, admin | `getOwnedExam` + `listSubmissionsForExam(examId, actor)` |
+| `/professor/exams/[examId]/submissions/[submissionId]` | professor, admin | `getSubmissionForGrading(submissionId, actor)` (ownership via course join; exam id in the URL must match) |
 | `/admin` | admin | placeholder |
 
 ## Environment variables
@@ -155,3 +179,4 @@ The service-role key is server-only and is used exclusively for Storage (decisio
 | 0005 | `0005_invitations_lecture_lifecycle.sql` | `course_invitations` table; lecture `description`/`duration_seconds`/`video_uploaded_at`/`published_at`; progress `watched_intervals`/`last_position_seconds`/`completed_at` |
 | 0006 | `0006_invitation_trigger_lectures_bucket.sql` | `on_public_user_email_set` trigger (invitation → enrollment on signup); private `lectures` Storage bucket with size cap + video MIME allowlist |
 | 0007 | `0007_syllabus_and_course_materials.sql` | `courses.syllabus_storage_path`/`syllabus_uploaded_at`; `course_materials` table + `material_kind` enum (`file`/`link`); private `course-files` Storage bucket with size cap + PDF/doc/image/video MIME allowlist |
+| 0008 | `0008_icy_goliath.sql` | Bilingual exams: `content_language` enum; es/en columns for exam titles/descriptions, question prompts/options/reference answers; answer key by position (`correct_option`); `max_attempts` (default 2) and `duration_minutes` (default 20); one `exam_submissions` row per attempt (`attempt_number`, `language`, `started_at`, nullable `submitted_at`); answers store `selected_option` or `answer_text` (CHECK exactly one) plus optional per-answer `feedback`; grade 0–100 CHECK. The exam tables were empty and unreferenced, so dropping the old single-language columns was backward-compatible. |

@@ -67,8 +67,12 @@ All role checks happen **server-side only**. Never trust the client for permissi
 
 ### Exams
 - Question types: Multiple choice, True/False, Fill in the blank, Short essay (written text)
-- Exams are NOT auto-graded — professor grades manually
+- Exams are NOT auto-graded — professor grades manually, every type including multiple choice (one overall grade 0–100 + feedback per attempt, optional comment per answer)
 - Section only appears in UI when an exam has been published
+- **Bilingual (es/en) from day one:** every title, prompt, option and grading guide has an `_es` and an `_en` column. Drafts may be incomplete; **publish requires both languages** (`lib/exams/publish-rules.ts`, re-checked in the publish transaction). Multiple-choice and true/false keys are stored **by position**, so correctness never depends on the language shown. The language a student answered in is recorded per attempt. Exam wording is professor-authored; agents never write or translate it.
+- **Attempts and time:** default 2 attempts and a 20-minute window per exam (`max_attempts`, `duration_minutes`), enforced on the server (the browser countdown is cosmetic). Answers autosave; an expired attempt is closed lazily with what was saved. The student's grade of record is the **highest** graded attempt.
+- **Frozen after the first attempt:** structure is editable only while the exam is a draft; unpublish/delete are refused once any attempt exists.
+- `correct_option` and `reference_answer_*` are selected only by `lib/data/exams.ts` (professor DTOs), never by `lib/data/exam-attempts.ts` (student).
 
 ### Assignments
 - Not in every course — section only appears when assignments exist
@@ -121,7 +125,7 @@ Route groups don't appear in URLs, so each role's surface gets a distinct URL pr
 │   ├── course-material-form.tsx, course-materials-manager.tsx, course-materials-list.tsx  # plain professor + student UI
 │   ├── course-files/           # use-open-signed-file.ts + file-row.tsx: the one tap-to-open pattern (fetch signed URL on tap, open in new tab) for the two signed-URL routes above
 │   ├── video-player/           # lecture-player.tsx: no native controls, seeks only into server-accepted ranges
-│   ├── exam-builder/           # (next phase)
+│   ├── exams/                  # plain professor builder/grading + student attempt UI
 │   └── forum/                  # (next phase)
 ├── lib/
 │   ├── db/                     # Drizzle schema + client
@@ -182,10 +186,10 @@ Key tables to plan:
 - `lectures` (id, course_id, title, video_url, order, completion_threshold)
 - `lecture_progress` (student_id, lecture_id, watched_seconds, completed, last_updated)
 - `course_materials` (id, course_id, kind [file|link], title, description, storage_path, mime_type, url, order, uploaded_at, published_at)
-- `exams` (id, course_id, title, published_at)
-- `exam_questions` (id, exam_id, type, prompt, options_json, order)
-- `exam_submissions` (id, exam_id, student_id, submitted_at)
-- `exam_answers` (id, submission_id, question_id, answer_text)
+- `exams` (id, course_id, title_es/en, description_es/en, max_attempts, duration_minutes, published_at)
+- `exam_questions` (id, exam_id, type, prompt_es/en, options_es/en, correct_option [by position], reference_answer_es/en, order)
+- `exam_submissions` (id, exam_id, student_id, attempt_number, language, started_at, submitted_at, grade, feedback, graded_at, graded_by) — one row per attempt
+- `exam_answers` (id, submission_id, question_id, answer_text | selected_option, feedback)
 - `assignments` (id, course_id, title, description, due_date)
 - `assignment_submissions` (id, assignment_id, student_id, file_url, grade, feedback)
 - `forum_posts` (id, lecture_id, course_id, author_id, body, created_at)
