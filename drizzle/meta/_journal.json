@@ -57,6 +57,13 @@
       "when": 1790126520751,
       "tag": "0007_syllabus_and_course_materials",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791315971312,
+      "tag": "0008_icy_goliath",
+      "breakpoints": true
     }
   ]
 }
