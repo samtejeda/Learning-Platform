@@ -2,7 +2,8 @@
 
 | File | Role | Source |
 |---|---|---|
-| `../DESIGN.md` | **Primary design system.** Source of truth for color, typography, spacing, radius, and component states in every screen. | `getdesign@0.6.25` bundled template `templates/claude.md` (VoltAgent/awesome-design-md), byte-identical. |
+| `../DESIGN.md` | **Primary design system.** Source of truth for color, typography, spacing, radius, and component states in every screen. | `getdesign@0.6.25` bundled template `templates/claude.md` (VoltAgent/awesome-design-md), byte-identical **except** a 1-line color note added under the front matter (2026-10-06). |
+| `PALETTES.md` | **Color source-of-truth pointer.** Palette mechanism, identity/shared token split, contrast rule, how to add one. Overrides DESIGN.md on color. | Project-authored. |
 | `DESIGN-airtable-reference.md` | **Structure-only reference** for data-dense screens (course management, rosters, admin): row/hairline dividers, badges, outlined secondary buttons, card grids. Never a source for colors or type — those always come from `DESIGN.md`. | `getdesign@0.6.25` bundled template `templates/airtable.md`, byte-identical. |
 
 Provenance (2026-09-18): the `getdesign` CLI was vetted read-only before use — it is a zero-dependency script that copies a bundled markdown file to `./DESIGN.md` and sends one anonymous telemetry POST. The files here were copied from the unpacked tarball rather than by executing the CLI, so no third-party code ran and nothing was reported. The files are kept unmodified so they can be diffed against future upstream versions; project-specific decisions (font substitutes, light-only mode, etc.) are recorded in `PROGRESS.md`, not in these files.
