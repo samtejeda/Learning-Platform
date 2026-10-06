@@ -1,0 +1,62 @@
+/*
+ * Color palettes — the operator picks one per deployment with COLOR_PALETTE
+ * (see lib/palette/ and design/PALETTES.md). The root layout sets
+ * <html data-palette="…">; each block below re-fills ONLY the identity tokens.
+ * Shared tokens (ink, body, on-*, success/warning/error, radius, shadow,
+ * fonts) live in globals.css @theme and never change per palette.
+ *
+ * Utilities (bg-primary, text-muted, …) compile to var(--color-…), so
+ * overriding the variable here recolors the whole app with no component
+ * changes. Selectors are html[data-palette] (specificity 0,1,1) so they beat
+ * the :root defaults from @theme regardless of source order.
+ *
+ * To add a palette (e.g. green): copy a block, change the values, add the
+ * name to PALETTES + PALETTE_META in lib/palette/index.ts. lib/palette/
+ * palette.test.ts then enforces contrast (>= 4.5:1 on every text pair).
+ *
+ * `terracotta` repeats the @theme defaults on purpose (so every palette is a
+ * peer block); the test fails if the two ever drift.
+ */
+
+html[data-palette="terracotta"] {
+  --color-primary: #cc785c;
+  --color-primary-active: #a9583e;
+  --color-primary-disabled: #e6dfd8;
+  --color-accent-teal: #5db8a6;
+  --color-accent-amber: #e8a55a;
+
+  --color-canvas: #faf9f5;
+  --color-surface-soft: #f5f0e8;
+  --color-surface-card: #efe9de;
+  --color-surface-cream-strong: #e8e0d2;
+  --color-surface-dark: #181715;
+  --color-surface-dark-elevated: #252320;
+  --color-surface-dark-soft: #1f1e1b;
+  --color-hairline: #e6dfd8;
+  --color-hairline-soft: #ebe6df;
+
+  --color-muted: #6c6a64;
+  --color-muted-soft: #8e8b82;
+}
+
+html[data-palette="blue"] {
+  --color-primary: #2563b0;
+  --color-primary-active: #174a8b;
+  --color-primary-disabled: #d5e0ee;
+  --color-accent-teal: #4fb3c4;
+  --color-accent-amber: #e8a55a;
+
+  --color-canvas: #f7f9fc;
+  --color-surface-soft: #eff4fa;
+  --color-surface-card: #e8eef7;
+  --color-surface-cream-strong: #dfe8f3;
+  --color-surface-dark: #14202e;
+  --color-surface-dark-elevated: #1d2d40;
+  --color-surface-dark-soft: #19273a;
+  --color-hairline: #dbe3ee;
+  --color-hairline-soft: #e5ebf3;
+
+  /* Blue-tinted neutrals: the warm grays fall under 4.5:1 on blue surfaces. */
+  --color-muted: #5a626d;
+  --color-muted-soft: #626b77;
+}

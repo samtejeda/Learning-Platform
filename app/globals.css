@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./palettes.css";
 
 /*
  * Design tokens — mapped 1:1 from DESIGN.md (Claude system). Utilities are
@@ -9,6 +10,12 @@
  *
  * Light mode only for now; tokens are variables so a dark theme is an
  * additive block later (see PROGRESS.md decisions).
+ *
+ * COLOR PALETTES: the identity colors below (primary, accents, surfaces,
+ * hairlines, muted) are the TERRACOTTA defaults and are overridden per
+ * deployment by app/palettes.css (<html data-palette>). That file + design/
+ * PALETTES.md are the source of truth for color; DESIGN.md's hexes describe
+ * terracotta only.
  */
 @theme {
   --color-*: initial;
