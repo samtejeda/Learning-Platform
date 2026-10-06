@@ -16,7 +16,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:http": "INTEGRATION_TESTS=1 dotenv -e .env.local -- vitest run -c vitest.http.config.mts",
-    "test:integration":"INTEGRATION_TESTS=1 dotenv -e .env.local -- vitest run -c vitest.integration.config.mts",
+    "test:integration": "INTEGRATION_TESTS=1 dotenv -e .env.local -- vitest run -c vitest.integration.config.mts",
     "db:generate": "dotenv -e .env.local -- drizzle-kit generate",
     "db:migrate": "dotenv -e .env.local -- drizzle-kit migrate",
     "db:check": "dotenv -e .env.local -- drizzle-kit check",
@@ -28,6 +28,7 @@
     "flow-core-crud": "node scripts/flow-core-crud.mjs",
     "db-query": "dotenv -e .env.local -- node scripts/db-query.mjs",
     "flow-lecture": "node scripts/flow-lecture.mjs",
+    "flow-syllabus-materials": "node scripts/flow-syllabus-materials.mjs",
     "cdn:verify": "dotenv -e .env.local -- node scripts/cdn-verify-cache.mjs"
   },
   "dependencies": {
