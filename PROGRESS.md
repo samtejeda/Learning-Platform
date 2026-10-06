@@ -312,6 +312,9 @@ Anything that's decided and ready, but can't actually be done or tested until so
 - A Cloudflare usage notification for the video CDN Worker (free plan caps at 100k requests/day, ~1,300 full lecture views/day).
 - Worker-side logging/Sentry, and an `/api/health` probe for the Worker (flagged by its own audit self-check; the Worker currently fails silently to anything but a broken player or the Cloudflare dashboard).
 
+### Every third-party service, generally
+**Resolved (Sam, 2026-10-06): Sentry's 14-day trial ended and auto-downgraded to the free Developer plan**, as Sentry's own email confirmed — nothing was or will be charged for trial-period events. Worth recording *why* this came up: Sam saw $89/mo (Sentry's Business plan, billed monthly) somewhere in the dashboard and read it as an impending charge; it was Sentry showing what the trial tier costs to keep, not a bill. The org is exactly where the original 2026-09-21 decision put it (free tier), unchanged. **General lesson, not just a Sentry one:** any service added with a free trial (Sentry already landed here; Resend and the Cloudflare Workers paid tier are both still ahead) should have its trial end-date and what-happens-after checked *before* the trial ends, not reacted to after an alarming email — add that check to this file when a trial starts, next to whichever item already covers that service above.
+
 ## Open questions for Sam
 - **Bilingual content: how to sequence PR #21 (unanswered 2026-09-24).** Recommendation: merge #21 as is (tested; the live DB already has migration 0007), then add the second language to syllabus and materials in a small follow-up before the frontend restyle, so the restyle is done once on the final shape. Alternative: rework inside #21, which delays its merge.
 - **Bilingual content: build now or later?** Logged as scope only; Sam has not asked for it to start.
