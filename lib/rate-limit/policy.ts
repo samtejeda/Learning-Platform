@@ -18,7 +18,9 @@ export type Scope =
   | "resend_confirmation"
   | "invite"
   | "lecture_progress"
-  | "course_file";
+  | "course_file"
+  | "exam_attempt"
+  | "exam_autosave";
 
 const MIN = 60;
 const HOUR = 3600;
@@ -74,6 +76,18 @@ export const RATE_LIMITS: Record<Scope, Policy> = {
   // is plenty even for someone flipping through every item in a course.
   course_file: {
     perIp: { limit: 120, windowSeconds: MIN },
+    perIdentifier: { limit: 30, windowSeconds: MIN },
+  },
+  // Starting/submitting an exam attempt (a handful per exam per student).
+  // Per-IP is generous because a whole class may share one network.
+  exam_attempt: {
+    perIp: { limit: 300, windowSeconds: HOUR },
+    perIdentifier: { limit: 20, windowSeconds: HOUR },
+  },
+  // Autosave during an attempt: the client sends one every ~30 s and on
+  // blur, so a student stays far below this; it only stops a runaway client.
+  exam_autosave: {
+    perIp: { limit: 600, windowSeconds: MIN },
     perIdentifier: { limit: 30, windowSeconds: MIN },
   },
 };
