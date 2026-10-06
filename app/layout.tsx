@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Cormorant_Garamond, Inter } from "next/font/google";
+import { PALETTE_META } from "@/lib/palette";
+import { getActivePalette } from "@/lib/palette/server";
 import "./globals.css";
 
 // DESIGN.md substitutes: Cormorant Garamond (display, for Copernicus) and
@@ -24,15 +26,22 @@ export const metadata: Metadata = {
   icons: { icon: "/icon.svg" },
 };
 
-export const viewport: Viewport = {
-  themeColor: "#faf9f5",
-  width: "device-width",
-  initialScale: 1,
-};
+// Browser chrome color follows the active palette's canvas.
+export function generateViewport(): Viewport {
+  return {
+    themeColor: PALETTE_META[getActivePalette()].canvas,
+    width: "device-width",
+    initialScale: 1,
+  };
+}
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${display.variable} ${sans.variable} h-full antialiased`}>
+    <html
+      lang="en"
+      data-palette={getActivePalette()}
+      className={`${display.variable} ${sans.variable} h-full antialiased`}
+    >
       <body className="flex min-h-full flex-col bg-canvas text-body">{children}</body>
     </html>
   );
