@@ -58,9 +58,10 @@ export function ResultSummary({
               {result.autoMax > 0 ? (
                 <>
                   <span className="font-medium tabular-nums">
-                    {result.autoPoints} of {pts(result.autoMax)}
+                    {result.autoPoints} of {result.autoMax}
                   </span>{" "}
-                  auto-graded, <span className="tabular-nums">{pts(result.pendingManualMax)}</span> pending manual grading
+                  auto-graded {result.autoMax === 1 ? "point" : "points"},{" "}
+                  <span className="tabular-nums">{pts(result.pendingManualMax)}</span> more pending manual grading
                 </>
               ) : (
                 <>

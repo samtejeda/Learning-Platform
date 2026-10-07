@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { OwnedExam } from "@/lib/data/exams";
 import { createQuestion, deleteQuestion, reorderQuestions, updateExam, updateQuestion } from "@/lib/exams/actions";
@@ -34,6 +34,12 @@ export function ExamBuilder({ exam }: { exam: OwnedExam }) {
   const [addKey, setAddKey] = useState(0);
   const [added, setAdded] = useState<string | null>(null);
   const started = exam.attemptCount > 0;
+  // The "added" note is a passing confirmation, not a permanent banner.
+  useEffect(() => {
+    if (!added) return;
+    const t = setTimeout(() => setAdded(null), 6000);
+    return () => clearTimeout(t);
+  }, [added]);
   const problems = examProblems(exam);
   const totals = examTotals(exam.questions);
   const problemCount = (n: number) => problems.filter((p) => p.question === n).length;
@@ -213,7 +219,7 @@ export function ExamBuilder({ exam }: { exam: OwnedExam }) {
               attemptCount={0}
               published={exam.status === "published"}
               onSaved={() => {
-                setAdded(`Question ${exam.questions.length + 1} added.`);
+                setAdded("Question added. It's in the list above.");
                 setAddKey((k) => k + 1);
               }}
               submitLabel="Add question"

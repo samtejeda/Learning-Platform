@@ -198,7 +198,7 @@ export function QuestionEditor({
               <div role="status" className="flex gap-2 rounded-md border border-warning/40 bg-warning/10 px-3.5 py-2.5 text-sm text-warning-strong">
                 <WarnIcon />
                 <p>
-                  The Spanish text has {blanks.es} {blanks.es === 1 ? "blank" : "blanks"} and the English text has {blanks.en}. Both need the same number before you can publish.
+                  The Spanish text has {blanks.es} {blanks.es === 1 ? "blank" : "blanks"} and the English text has {blanks.en} {blanks.en === 1 ? "blank" : "blanks"}. Both need the same number before you can publish.
                 </p>
               </div>
             )}
