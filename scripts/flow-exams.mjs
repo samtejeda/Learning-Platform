@@ -72,18 +72,29 @@ check(true, `created draft exam ${examId}`);
 
 // ── Add one question of each type (the essay misses its English prompt) ────
 const addForm = "form:has(select[name=type])";
-async function addQuestion(type, fields) {
+async function addQuestion(type, fields, { key, blanks } = {}) {
   await prof.selectOption(`${addForm} select[name=type]`, type);
   for (const [name, value] of Object.entries(fields)) await prof.fill(`${addForm} [name=${name}]`, value);
+  if (key !== undefined) await prof.selectOption(`${addForm} select[name=correctOption]`, key);
+  // Blanks are placed by the button (the professor never types the token).
+  if (blanks) {
+    await prof.click(`${addForm} button:has-text('Insert blank (Español)')`);
+    await prof.click(`${addForm} button:has-text('Insert blank (English)')`);
+  }
   await prof.click(`${addForm} button[type=submit]`);
   await prof.waitForSelector(`${addForm} [role=status]:has-text("Question added")`, { timeout: 30000 });
   await prof.reload({ waitUntil: "networkidle" });
 }
-await addQuestion("multiple_choice", { promptEs: "PLACEHOLDER mc es", promptEn: "PLACEHOLDER mc en", optionsEs: "a\nb\nc", optionsEn: "a\nb\nc" });
-await prof.selectOption(`${addForm} select[name=correctOption]`, "1").catch(() => {});
-await addQuestion("true_false", { promptEs: "PLACEHOLDER tf es", promptEn: "PLACEHOLDER tf en" });
-await addQuestion("fill_in_the_blank", { promptEs: "PLACEHOLDER fill es", promptEn: "PLACEHOLDER fill en", referenceAnswerEs: "PLACEHOLDER KEYGUIDE fill es", referenceAnswerEn: "PLACEHOLDER KEYGUIDE fill en" });
-await addQuestion("short_essay", { promptEs: "PLACEHOLDER essay es", referenceAnswerEs: "PLACEHOLDER KEYGUIDE essay es", referenceAnswerEn: "PLACEHOLDER KEYGUIDE essay en" });
+// A correct answer is required for multiple choice and true/false: saving without one is refused.
+await prof.selectOption(`${addForm} select[name=type]`, "multiple_choice");
+for (const [name, value] of Object.entries({ promptEs: "PLACEHOLDER mc es", promptEn: "PLACEHOLDER mc en", optionsEs: "a\nb\nc", optionsEn: "a\nb\nc" })) await prof.fill(`${addForm} [name=${name}]`, value);
+await prof.click(`${addForm} button[type=submit]`);
+await prof.waitForSelector(`${addForm} :text("Mark the correct answer")`, { timeout: 30000 });
+check(true, "multiple choice without a correct answer is refused");
+await addQuestion("multiple_choice", { promptEs: "PLACEHOLDER mc es", promptEn: "PLACEHOLDER mc en", optionsEs: "a\nb\nc", optionsEn: "a\nb\nc" }, { key: "1" });
+await addQuestion("true_false", { promptEs: "PLACEHOLDER tf es", promptEn: "PLACEHOLDER tf en" }, { key: "0" });
+await addQuestion("fill_in_the_blank", { promptEs: "PLACEHOLDER fill es ", promptEn: "PLACEHOLDER fill en ", referenceAnswerEs: "PLACEHOLDER KEYGUIDE fill es", referenceAnswerEn: "PLACEHOLDER KEYGUIDE fill en", points: "3" }, { blanks: true });
+await addQuestion("short_essay", { promptEs: "PLACEHOLDER essay es", referenceAnswerEs: "PLACEHOLDER KEYGUIDE essay es", referenceAnswerEn: "PLACEHOLDER KEYGUIDE essay en", points: "4" });
 await shot(prof, "prof-exam-builder-draft");
 
 // ── Publish gate: refused with a specific list ─────────────────────────────
@@ -92,16 +103,8 @@ await prof.waitForSelector("text=Add the English prompt", { timeout: 20000 });
 check(true, "publish refused, lists what's missing");
 await shot(prof, "prof-publish-refused");
 
-// fix: open question 4 and add the English prompt, set MC + TF keys
+// fix: open question 4 and add the English prompt
 const details = prof.locator("details");
-await details.nth(0).locator("summary").click();
-await details.nth(0).locator("select[name=correctOption]").selectOption("1");
-await details.nth(0).locator("button[type=submit]").click();
-await details.nth(0).locator("[role=status]:has-text('Saved')").waitFor({ timeout: 20000 });
-await details.nth(1).locator("summary").click();
-await details.nth(1).locator("select[name=correctOption]").selectOption("0");
-await details.nth(1).locator("button[type=submit]").click();
-await details.nth(1).locator("[role=status]:has-text('Saved')").waitFor({ timeout: 20000 });
 await details.nth(3).locator("summary").click();
 await details.nth(3).locator("textarea[name=promptEn]").fill("PLACEHOLDER essay en");
 await details.nth(3).locator("button[type=submit]").click();
@@ -138,8 +141,9 @@ await student.waitForSelector("text=Saved", { timeout: 20000 });
 check(true, "autosave confirmed after choosing an option");
 await student.click("fieldset:nth-of-type(1) >> nth=1").catch(() => {});
 await student.locator("label:has-text('True')").first().click();
-await student.locator("textarea").nth(0).fill("PLACEHOLDER fill answer");
-await student.locator("textarea").nth(1).fill("PLACEHOLDER essay answer");
+await student.locator("input[aria-label*='blank 1']").fill("PLACEHOLDER fill answer");
+await student.locator("textarea").nth(0).fill("PLACEHOLDER essay answer");
+check((await student.locator("input[aria-label*='blank']").count()) === 1, "fill in the blank shows one input per blank");
 await shot(student, "student-attempt-filled");
 // Raw server HTML (includes the RSC payload) of every student exam page must
 // never carry a key or grading guide, whatever the markup shows.
@@ -164,8 +168,11 @@ await student.click("button:has-text('Keep working')");
 check((await student.locator("button:has-text('Submit answers')").count()) === 1, "Keep working returns to the form with answers intact");
 await student.click("button:has-text('Submit answers')");
 await student.click("button:has-text('Yes, submit')");
-await student.waitForSelector("text=Submitted. Your professor will grade", { timeout: 30000 });
-check(true, "submitted; the attempt says it awaits manual grading (no auto score)");
+await student.waitForSelector("text=auto-graded points", { timeout: 30000 });
+check((await student.locator("text=2 of 2 auto-graded points").count()) === 1, "right after submit: provisional score (2 of 2 auto-graded)");
+check((await student.locator("text=Awaiting your professor: questions 3, 4").count()) === 1, "the manual questions awaiting grading are named");
+check((await student.locator("text=Correct (").count()) === 2, "right/wrong shown per auto-scored question");
+check((await student.locator("text=Correct answer:").count()) === 0, "no correct answer revealed by default");
 await shot(student, "student-submitted");
 
 // ── Professor grades by hand ───────────────────────────────────────────────
@@ -178,23 +185,25 @@ check((await prof.locator("p:has-text('Key:')").count()) >= 2, "professor sees t
 check((await prof.locator("text=PLACEHOLDER KEYGUIDE").count()) >= 1, "professor sees the grading guide");
 // A bad grade keeps every typed value and shows the error on the field.
 await prof.fill("textarea[name^='comment:'] >> nth=0", "PLACEHOLDER keep this comment");
-await prof.fill("input[name=grade]", "150");
+await prof.fill("input[name^='points:'] >> nth=0", "9");
+await prof.fill("input[name^='points:'] >> nth=1", "1");
 await prof.fill("textarea[name=feedback]", "PLACEHOLDER keep feedback");
-await prof.click("button:has-text('Save grade')");
-await prof.waitForSelector("#grade[aria-invalid=true]", { timeout: 20000 });
-check((await prof.inputValue("input[name=grade]")) === "150", "grading error keeps the typed grade");
+await prof.click("button:has-text('Save grading')");
+await prof.waitForSelector("text=Points can't be more than", { timeout: 20000 });
+check((await prof.inputValue("input[name^='points:'] >> nth=0")) === "9", "grading error keeps the typed points");
 check((await prof.inputValue("textarea[name=feedback]")) === "PLACEHOLDER keep feedback", "grading error keeps the typed feedback");
 check((await prof.inputValue("textarea[name^='comment:'] >> nth=0")) === "PLACEHOLDER keep this comment", "grading error keeps the typed per-answer comment");
 await shot(prof, "prof-grading-error");
-await prof.fill("input[name=grade]", "88");
+await prof.fill("input[name^='points:'] >> nth=0", "3");
+await prof.fill("input[name^='points:'] >> nth=1", "2.5");
 await prof.fill("textarea[name=feedback]", "PLACEHOLDER feedback");
 await shot(prof, "prof-grading");
-await prof.click("button:has-text('Save grade')");
+await prof.click("button:has-text('Save grading')");
 await prof.waitForSelector("text=Grade saved.", { timeout: 20000 });
 
 // ── Student sees the grade only now ────────────────────────────────────────
 await student.reload({ waitUntil: "networkidle" });
-check((await student.locator("text=Grade: 88").count()) > 0, "student sees the grade after the professor saved it");
+check((await student.locator("text=7.5 of 9 points").count()) > 0, "student sees the final score (2 auto + 5.5 manual of 9) after the professor saved it");
 check((await student.locator("text=Key:").count()) === 0 && (await student.locator("text=Grading guide").count()) === 0, "student never sees a key or grading guide");
 await shot(student, "student-graded");
 

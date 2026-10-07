@@ -132,7 +132,7 @@ export function ExamGradeForm({
             defaultValue={state?.values?.feedback ?? submission.feedback ?? ""}
             errors={state?.fieldErrors?.feedback}
           />
-          {state?.error && !state.fieldErrors && <Alert tone="error">{state.error}</Alert>}
+          {state?.error && !state.fieldErrors?.feedback && <Alert tone="error">{state.error}</Alert>}
           {state?.success && <Alert tone="success">{state.success}</Alert>}
           <SubmitButton pendingLabel="Saving…" fullWidth={false} className="min-h-11 w-full sm:w-auto">
             Save grading
