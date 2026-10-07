@@ -19,7 +19,6 @@ import { CourseMaterialsManager } from "@/components/course-materials-manager";
 import { CourseMaterialForm } from "@/components/course-material-form";
 import { ProfessorExamList } from "@/components/exams/professor-exam-list";
 import { ExamForm } from "@/components/exams/exam-form";
-import { Badge } from "@/components/ui/badge";
 
 const paramsSchema = z.object({ courseId: z.uuid() });
 
