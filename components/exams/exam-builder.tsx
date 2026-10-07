@@ -53,9 +53,9 @@ export function ExamBuilder({ exam }: { exam: OwnedExam }) {
     });
   }
 
-  function jump(question: number | null) {
-    if (question === null) {
-      const el = document.getElementById("exam-details");
+  function jump(question: number | "details" | "add") {
+    if (question === "details" || question === "add") {
+      const el = document.getElementById(question === "details" ? "exam-details" : "add-question");
       el?.scrollIntoView({ behavior: "smooth", block: "start" });
       requestAnimationFrame(() => el?.querySelector<HTMLElement>("input")?.focus());
       return;
@@ -203,7 +203,7 @@ export function ExamBuilder({ exam }: { exam: OwnedExam }) {
       </Card>
 
       {!started ? (
-        <Card variant="outlined">
+        <Card variant="outlined" id="add-question" className="scroll-mt-20">
           <CardTitle>Add a question</CardTitle>
           {added && (
             <div className="mt-3">

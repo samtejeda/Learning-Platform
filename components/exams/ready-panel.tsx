@@ -35,7 +35,7 @@ export function ReadyPanel({
 }: {
   exam: OwnedExam;
   problems: PublishProblem[];
-  onJump: (question: number | null) => void;
+  onJump: (target: number | "details" | "add") => void;
 }) {
   const draft = exam.status === "draft";
   const started = exam.attemptCount > 0;
@@ -57,21 +57,24 @@ export function ReadyPanel({
             {problems.length} {problems.length === 1 ? "thing needs" : "things need"} fixing{draft ? " before you can publish" : ""}
           </p>
           <ul role="list" className="space-y-2">
-            {examLevel.map((p) => (
-              <li key={p.message} className="text-sm text-body">
-                <a
-                  href="#exam-details"
-                  className="rounded-sm font-medium text-ink underline underline-offset-2 hover:no-underline focus-visible:focus-ring"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    onJump(null);
-                  }}
-                >
-                  Exam details
-                </a>
-                : {p.message}
-              </li>
-            ))}
+            {examLevel.map((p) => {
+              const toDetails = /title/i.test(p.message);
+              return (
+                <li key={p.message} className="text-sm text-body">
+                  <a
+                    href={toDetails ? "#exam-details" : "#add-question"}
+                    className="rounded-sm font-medium text-ink underline underline-offset-2 hover:no-underline focus-visible:focus-ring"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onJump(toDetails ? "details" : "add");
+                    }}
+                  >
+                    {toDetails ? "Exam details" : "Questions"}
+                  </a>
+                  : {p.message}
+                </li>
+              );
+            })}
             {[...byQuestion.entries()].map(([n, messages]) => (
               <li key={n} className="text-sm text-body">
                 <a

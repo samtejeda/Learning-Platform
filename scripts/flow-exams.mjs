@@ -317,6 +317,7 @@ for (const [pg, name, url] of [
   [wideStudent, "wide-student-course", `${BASE_URL}/courses/${courseId}`],
   [wideStudent, "wide-student-exam", `${BASE_URL}/courses/${courseId}/exams/${examId}`],
   [wideProf, "wide-prof-course", `${BASE_URL}/professor/courses/${courseId}`],
+  [wideProf, "wide-prof-builder", examUrl],
   [wideProf, "wide-prof-submissions", `${examUrl}/submissions`],
 ]) {
   await pg.goto(url, { waitUntil: "networkidle" });
