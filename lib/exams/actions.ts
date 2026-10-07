@@ -16,7 +16,9 @@ import {
   unpublishExam as unpublishExamRow,
   updateExam as updateExamRow,
   updateQuestion as updateQuestionRow,
+  type EditOutcome,
 } from "@/lib/data/exams";
+import { ATTEMPT_BLOCK_MESSAGES } from "@/lib/exams/edit-rules";
 import { startAttempt, submitAttempt } from "@/lib/data/exam-attempts";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { parseFormData, parseObject, type ActionState } from "@/lib/validation/form";
@@ -37,7 +39,30 @@ import {
 // success. Exams are never auto-graded: nothing here computes a score.
 
 const EXAM_NOT_FOUND = "Exam not found.";
-const LOCKED = "This exam is published or already has attempts, so it can't be changed. Unpublish it first (only possible before anyone has started).";
+
+/** Map an edit outcome to an ActionState (null = success). */
+function editFailure(r: EditOutcome, notFound: string): ActionState {
+  switch (r.result) {
+    case "ok":
+      return null;
+    case "not_found":
+      return { error: notFound };
+    case "attempts_block":
+      return { error: ATTEMPT_BLOCK_MESSAGES[r.reason] };
+    case "incomplete":
+      return {
+        error: `This exam is published, so an edit must keep it complete in both languages. Nothing was saved. ${r.problems
+          .map((p) => (p.question ? `Question ${p.question}: ${p.message}` : p.message))
+          .join(" ")}`,
+      };
+    case "invalid":
+      return { error: r.error };
+    case "too_many":
+      return { error: "This exam has the maximum number of questions." };
+    case "mismatch":
+      return { error: "The question list changed. Refresh and try again." };
+  }
+}
 
 function revalidateExam(examId: string, courseId?: string) {
   revalidatePath(`/professor/exams/${examId}`);
@@ -69,8 +94,8 @@ export async function updateExam(examId: string, _prev: ActionState, formData: F
   const parsed = parseFormData(examFormSchema, formData);
   if (!parsed.ok) return parsed.state;
   const result = await updateExamRow(id.data, user, parsed.data);
-  if (result === "not_found") return { error: EXAM_NOT_FOUND };
-  if (result === "locked") return { error: LOCKED };
+  const failure = editFailure(result, EXAM_NOT_FOUND);
+  if (failure) return failure;
   revalidateExam(id.data);
   return { success: "Saved." };
 }
@@ -83,7 +108,7 @@ export async function deleteExam(examId: string): Promise<ActionState> {
   if (!exam) return { error: EXAM_NOT_FOUND };
   const result = await deleteExamRow(id.data, user);
   if (result === "not_found") return { error: EXAM_NOT_FOUND };
-  if (result === "locked") return { error: "Students have started this exam, so it can't be deleted." };
+  if (result === "has_attempts") return { error: "Students have started this exam, so it can't be deleted (their work would be lost). You can unpublish it instead." };
   revalidateExam(id.data, exam.courseId);
   redirect(`/professor/courses/${exam.courseId}`);
 }
@@ -112,27 +137,11 @@ export async function unpublishExam(examId: string): Promise<ActionState> {
   if (!id.success) return { error: EXAM_NOT_FOUND };
   const result = await unpublishExamRow(id.data, user);
   if (result === "not_found") return { error: EXAM_NOT_FOUND };
-  if (result === "locked") return { error: "Students have started this exam, so it can't be unpublished." };
   revalidateExam(id.data);
   return { success: "Unpublished." };
 }
 
 // ─── Professor: questions ─────────────────────────────────────────────────────
-
-function questionResultState(r: { result: string; error?: string }): ActionState {
-  switch (r.result) {
-    case "not_found":
-      return { error: "Question not found." };
-    case "locked":
-      return { error: LOCKED };
-    case "invalid":
-      return { error: r.error ?? "Invalid question." };
-    case "too_many":
-      return { error: "This exam has the maximum number of questions." };
-    default:
-      return null;
-  }
-}
 
 export async function createQuestion(examId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await assertRole("professor", "admin");
@@ -142,8 +151,8 @@ export async function createQuestion(examId: string, _prev: ActionState, formDat
   if (!parsed.ok) return parsed.state;
   const { type, ...fields } = parsed.data;
   const r = await insertQuestion(id.data, user, type, fields);
-  const failure = questionResultState(r);
-  if (failure) return failure.error === "Question not found." ? { error: EXAM_NOT_FOUND } : failure;
+  const failure = editFailure(r, EXAM_NOT_FOUND);
+  if (failure) return failure;
   revalidateExam(id.data);
   return { success: "Question added." };
 }
@@ -155,7 +164,7 @@ export async function updateQuestion(questionId: string, _prev: ActionState, for
   const parsed = parseFormData(questionFieldsSchema, formData);
   if (!parsed.ok) return parsed.state;
   const r = await updateQuestionRow(id.data, user, parsed.data);
-  const failure = questionResultState(r);
+  const failure = editFailure(r, "Question not found.");
   if (failure) return failure;
   revalidatePath("/professor/exams", "layout");
   return { success: "Saved." };
@@ -166,8 +175,8 @@ export async function deleteQuestion(questionId: string): Promise<ActionState> {
   const id = uuidSchema.safeParse(questionId);
   if (!id.success) return { error: "Question not found." };
   const r = await deleteQuestionRow(id.data, user);
-  if (r === "not_found") return { error: "Question not found." };
-  if (r === "locked") return { error: LOCKED };
+  const failure = editFailure(r, "Question not found.");
+  if (failure) return failure;
   revalidatePath("/professor/exams", "layout");
   return { success: "Question deleted." };
 }
@@ -179,9 +188,8 @@ export async function reorderQuestions(examId: string, input: unknown): Promise<
   const parsed = parseObject(reorderQuestionsSchema, (input ?? {}) as Record<string, unknown>);
   if (!parsed.ok) return parsed.state;
   const r = await reorderQuestionRows(id.data, user, parsed.data.orderedIds);
-  if (r === "not_found") return { error: EXAM_NOT_FOUND };
-  if (r === "locked") return { error: LOCKED };
-  if (r === "mismatch") return { error: "The question list changed. Refresh and try again." };
+  const failure = editFailure(r, EXAM_NOT_FOUND);
+  if (failure) return failure;
   revalidateExam(id.data);
   return { success: "Order saved." };
 }

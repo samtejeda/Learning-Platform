@@ -21,12 +21,10 @@ export function ExamForm({
   action,
   initial,
   submitLabel,
-  disabled,
 }: {
   action: (prev: ActionState, formData: FormData) => Promise<ActionState>;
   initial?: Initial;
   submitLabel: string;
-  disabled?: boolean;
 }) {
   const [state, formAction] = useActionState<ActionState, FormData>(action, null);
   const v = (k: keyof Initial, fallback = "") => state?.values?.[k] ?? (initial?.[k] != null ? String(initial[k]) : fallback);
@@ -35,7 +33,7 @@ export function ExamForm({
     <form action={formAction} className="space-y-4" noValidate>
       {state?.error && <Alert tone="error">{state.error}</Alert>}
       {state?.success && <Alert tone="success">{state.success}</Alert>}
-      <fieldset disabled={disabled} className="space-y-4">
+      <fieldset className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Title (Español)" name="titleEs" maxLength={200} defaultValue={v("titleEs")} errors={state?.fieldErrors?.titleEs} />
           <Field label="Title (English)" name="titleEn" maxLength={200} defaultValue={v("titleEn")} errors={state?.fieldErrors?.titleEn} />

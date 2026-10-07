@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { courses, examAnswers, examQuestions, examSubmissions, exams, users } from "@/lib/db/schema";
 import type { Actor } from "./courses";
 import { examPublishProblems, type PublishProblem } from "@/lib/exams/publish-rules";
+import { optionEditBlock, type AttemptBlock } from "@/lib/exams/edit-rules";
 import { normalizeQuestionFields, type QuestionType } from "@/lib/exams/question";
 import { asStringArray, type ContentLanguage } from "@/lib/exams/language";
 import { MAX_QUESTIONS_PER_EXAM } from "@/lib/exams/limits";
@@ -16,13 +17,16 @@ import type { ExamFormInput, GradeInput, QuestionFieldsInput } from "@/lib/valid
 // attempt lifecycle live in lib/data/exam-attempts.ts. Answer keys and
 // reference answers appear ONLY in this file's professor DTOs.
 //
-// Lifecycle rules enforced here (not in the UI):
-//  - Exam fields and questions are editable only while the exam is a DRAFT.
-//  - An exam can be unpublished or deleted only while it has NO attempts
-//    (any exam_submissions row, in progress or submitted): structure is
-//    frozen after the first attempt so a graded answer never changes meaning.
-//  - Publish re-runs the bilingual completeness gate inside the transaction
-//    that locks the exam row.
+// Lifecycle rules enforced here (not in the UI), per Sam's 2026-10-06 change:
+//  - Exams are editable at ANY state (draft, published, attempts exist):
+//    wording, keys, reference answers, titles, max_attempts, duration.
+//  - Once attempts exist (any exam_submissions row), edits that would move or
+//    drop a stored position are refused: delete/add/reorder questions,
+//    add/remove/reorder multiple-choice options. Question type is immutable.
+//  - Every edit to a PUBLISHED exam re-runs the bilingual publish gate in the
+//    same transaction; a failing edit is rejected, never auto-unpublished.
+//  - Unpublish is always allowed; delete only while there are no attempts.
+//  - In-progress attempts see edits live (no snapshots).
 
 export type ExamStatus = "draft" | "published";
 
@@ -327,7 +331,16 @@ export async function getSubmissionForGrading(
 
 // ─── Writes ───────────────────────────────────────────────────────────────────
 
-export type WriteResult = "ok" | "not_found" | "locked";
+export type WriteResult = "ok" | "not_found";
+
+export type EditOutcome =
+  | { result: "ok" }
+  | { result: "not_found" }
+  | { result: "attempts_block"; reason: AttemptBlock }
+  | { result: "incomplete"; problems: PublishProblem[] }
+  | { result: "invalid"; error: string }
+  | { result: "too_many" }
+  | { result: "mismatch" };
 
 export async function insertExam(courseId: string, input: ExamFormInput): Promise<{ id: string }> {
   const [row] = await db.insert(exams).values({ courseId, ...input }).returning({ id: exams.id });
@@ -336,35 +349,82 @@ export async function insertExam(courseId: string, input: ExamFormInput): Promis
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-/**
- * Lock the exam row (ownership joined) and report whether structure may
- * change: draft only. Draft implies no attempts, because an exam can't be
- * unpublished once an attempt exists and attempts can't start on a draft.
- */
-async function lockOwnedDraft(tx: Tx, examId: string, actor: Actor) {
-  const [row] = await tx
-    .select({ id: exams.id, courseId: exams.courseId, publishedAt: exams.publishedAt })
-    .from(exams)
-    .innerJoin(courses, eq(exams.courseId, courses.id))
-    .where(ownerCondition(examId, actor))
-    .for("update", { of: exams })
-    .limit(1);
-  if (!row) return { state: "not_found" as const };
-  if (row.publishedAt) return { state: "locked" as const, courseId: row.courseId };
-  return { state: "draft" as const, courseId: row.courseId };
+class EditRejected extends Error {
+  constructor(readonly outcome: EditOutcome) {
+    super("edit rejected");
+  }
 }
 
-export async function updateExam(examId: string, actor: Actor, input: ExamFormInput): Promise<WriteResult> {
-  return db.transaction(async (tx) => {
-    const lock = await lockOwnedDraft(tx, examId, actor);
-    if (lock.state !== "draft") return lock.state;
+/** Publish-gate problems for an exam's current (in-transaction) state. */
+async function currentProblems(tx: Tx, examId: string): Promise<PublishProblem[]> {
+  const [exam] = await tx
+    .select({ titleEs: exams.titleEs, titleEn: exams.titleEn })
+    .from(exams)
+    .where(eq(exams.id, examId));
+  const questions = await tx
+    .select({
+      type: examQuestions.type,
+      promptEs: examQuestions.promptEs,
+      promptEn: examQuestions.promptEn,
+      optionsEs: examQuestions.optionsEs,
+      optionsEn: examQuestions.optionsEn,
+      correctOption: examQuestions.correctOption,
+    })
+    .from(examQuestions)
+    .where(eq(examQuestions.examId, examId))
+    .orderBy(asc(examQuestions.order), asc(examQuestions.createdAt));
+  return examPublishProblems(exam, questions);
+}
+
+/**
+ * Run an edit on an exam the actor owns, at any state (draft or published,
+ * with or without attempts). The exam row is locked (ownership joined), the
+ * edit runs, and if the exam is PUBLISHED the bilingual publish gate is
+ * re-run on the post-edit state: a failing edit is rolled back and rejected
+ * (the exam is never silently unpublished). `fn` reports whether attempts
+ * exist via `ctx.attempts` so it can refuse position-changing edits.
+ * Returning anything but "ok" from `fn` means it made no writes.
+ */
+async function editOwnedExam(
+  examId: string,
+  actor: Actor,
+  fn: (tx: Tx, ctx: { attempts: number }) => Promise<EditOutcome>,
+): Promise<EditOutcome> {
+  try {
+    return await db.transaction(async (tx) => {
+      const [row] = await tx
+        .select({ id: exams.id, publishedAt: exams.publishedAt })
+        .from(exams)
+        .innerJoin(courses, eq(exams.courseId, courses.id))
+        .where(ownerCondition(examId, actor))
+        .for("update", { of: exams })
+        .limit(1);
+      if (!row) return { result: "not_found" } as const;
+      const [{ n }] = await tx.select({ n: count() }).from(examSubmissions).where(eq(examSubmissions.examId, examId));
+      const outcome = await fn(tx, { attempts: n });
+      if (outcome.result !== "ok") return outcome;
+      if (row.publishedAt) {
+        const problems = await currentProblems(tx, examId);
+        if (problems.length > 0) throw new EditRejected({ result: "incomplete", problems });
+      }
+      return outcome;
+    });
+  } catch (e) {
+    if (e instanceof EditRejected) return e.outcome;
+    throw e;
+  }
+}
+
+/** Exam fields are always editable; max_attempts / duration apply to future attempts. */
+export async function updateExam(examId: string, actor: Actor, input: ExamFormInput): Promise<EditOutcome> {
+  return editOwnedExam(examId, actor, async (tx) => {
     await tx.update(exams).set({ ...input, updatedAt: new Date() }).where(eq(exams.id, examId));
-    return "ok";
+    return { result: "ok" };
   });
 }
 
-/** Delete an exam that has no attempts (a published exam with no attempts may go). */
-export async function deleteExam(examId: string, actor: Actor): Promise<WriteResult> {
+/** Delete an exam that has no attempts (a cascade would destroy student work). */
+export async function deleteExam(examId: string, actor: Actor): Promise<WriteResult | "has_attempts"> {
   return db.transaction(async (tx) => {
     const [row] = await tx
       .select({ id: exams.id })
@@ -375,7 +435,7 @@ export async function deleteExam(examId: string, actor: Actor): Promise<WriteRes
       .limit(1);
     if (!row) return "not_found";
     const [{ n }] = await tx.select({ n: count() }).from(examSubmissions).where(eq(examSubmissions.examId, examId));
-    if (n > 0) return "locked";
+    if (n > 0) return "has_attempts";
     await tx.delete(exams).where(eq(exams.id, examId));
     return "ok";
   });
@@ -389,13 +449,7 @@ export type PublishResult =
 export async function publishExam(examId: string, actor: Actor): Promise<PublishResult> {
   return db.transaction(async (tx) => {
     const [exam] = await tx
-      .select({
-        id: exams.id,
-        courseId: exams.courseId,
-        titleEs: exams.titleEs,
-        titleEn: exams.titleEn,
-        publishedAt: exams.publishedAt,
-      })
+      .select({ id: exams.id, courseId: exams.courseId, publishedAt: exams.publishedAt })
       .from(exams)
       .innerJoin(courses, eq(exams.courseId, courses.id))
       .where(ownerCondition(examId, actor))
@@ -404,19 +458,7 @@ export async function publishExam(examId: string, actor: Actor): Promise<Publish
     if (!exam) return { ok: false, reason: "not_found" } as const;
     if (exam.publishedAt) return { ok: true, courseId: exam.courseId } as const;
 
-    const questions = await tx
-      .select({
-        type: examQuestions.type,
-        promptEs: examQuestions.promptEs,
-        promptEn: examQuestions.promptEn,
-        optionsEs: examQuestions.optionsEs,
-        optionsEn: examQuestions.optionsEn,
-        correctOption: examQuestions.correctOption,
-      })
-      .from(examQuestions)
-      .where(eq(examQuestions.examId, examId))
-      .orderBy(asc(examQuestions.order), asc(examQuestions.createdAt));
-    const problems = examPublishProblems(exam, questions);
+    const problems = await currentProblems(tx, examId);
     if (problems.length > 0) return { ok: false, reason: "incomplete", problems } as const;
 
     await tx.update(exams).set({ publishedAt: new Date(), updatedAt: new Date() }).where(eq(exams.id, examId));
@@ -424,7 +466,11 @@ export async function publishExam(examId: string, actor: Actor): Promise<Publish
   });
 }
 
-/** Unpublish only while no attempt exists. */
+/**
+ * Unpublish at any time, including after attempts exist (nothing is deleted;
+ * students just stop seeing the exam, their attempts and grades until it is
+ * published again).
+ */
 export async function unpublishExam(examId: string, actor: Actor): Promise<WriteResult> {
   return db.transaction(async (tx) => {
     const [row] = await tx
@@ -435,26 +481,24 @@ export async function unpublishExam(examId: string, actor: Actor): Promise<Write
       .for("update", { of: exams })
       .limit(1);
     if (!row) return "not_found";
-    const [{ n }] = await tx.select({ n: count() }).from(examSubmissions).where(eq(examSubmissions.examId, examId));
-    if (n > 0) return "locked";
     await tx.update(exams).set({ publishedAt: null, updatedAt: new Date() }).where(eq(exams.id, examId));
     return "ok";
   });
 }
 
-export type QuestionWriteResult = WriteResult | "invalid" | "too_many";
+export type QuestionWriteResult = EditOutcome;
 
 export async function insertQuestion(
   examId: string,
   actor: Actor,
   type: QuestionType,
   fields: QuestionFieldsInput,
-): Promise<{ result: QuestionWriteResult; error?: string }> {
+): Promise<EditOutcome> {
   const normalized = normalizeQuestionFields(type, fields);
   if (!normalized.ok) return { result: "invalid", error: normalized.error };
-  return db.transaction(async (tx) => {
-    const lock = await lockOwnedDraft(tx, examId, actor);
-    if (lock.state !== "draft") return { result: lock.state };
+  return editOwnedExam(examId, actor, async (tx, { attempts }) => {
+    // A new question would be missing from every existing attempt.
+    if (attempts > 0) return { result: "attempts_block", reason: "add_question" };
     const [{ next, n }] = await tx
       .select({
         next: sql<number>`coalesce(max(${examQuestions.order}), -1) + 1`,
@@ -462,68 +506,72 @@ export async function insertQuestion(
       })
       .from(examQuestions)
       .where(eq(examQuestions.examId, examId));
-    if (n >= MAX_QUESTIONS_PER_EXAM) return { result: "too_many" as const };
+    if (n >= MAX_QUESTIONS_PER_EXAM) return { result: "too_many" };
     await tx.insert(examQuestions).values({ examId, type, order: next, ...normalized.columns });
-    return { result: "ok" as const };
+    return { result: "ok" };
   });
 }
 
-/** Update a question's fields (type is immutable). Draft only; ownership joined through the exam. */
-export async function updateQuestion(
-  questionId: string,
-  actor: Actor,
-  fields: QuestionFieldsInput,
-): Promise<{ result: QuestionWriteResult; error?: string }> {
-  return db.transaction(async (tx) => {
-    const [q] = await tx
-      .select({ examId: examQuestions.examId, type: examQuestions.type })
+/**
+ * Update a question's fields (type is immutable). Allowed at any state;
+ * with attempts, option count/order may not change. Ownership is joined
+ * through the exam.
+ */
+export async function updateQuestion(questionId: string, actor: Actor, fields: QuestionFieldsInput): Promise<EditOutcome> {
+  const [q] = await db
+    .select({ examId: examQuestions.examId })
+    .from(examQuestions)
+    .where(eq(examQuestions.id, questionId))
+    .limit(1);
+  if (!q) return { result: "not_found" };
+  return editOwnedExam(q.examId, actor, async (tx, { attempts }) => {
+    const [cur] = await tx
+      .select({ type: examQuestions.type, optionsEs: examQuestions.optionsEs, optionsEn: examQuestions.optionsEn })
       .from(examQuestions)
-      .where(eq(examQuestions.id, questionId))
-      .limit(1);
-    if (!q) return { result: "not_found" as const };
-    const lock = await lockOwnedDraft(tx, q.examId, actor);
-    if (lock.state !== "draft") return { result: lock.state };
-    const normalized = normalizeQuestionFields(q.type, fields);
-    if (!normalized.ok) return { result: "invalid" as const, error: normalized.error };
+      .where(and(eq(examQuestions.id, questionId), eq(examQuestions.examId, q.examId)));
+    if (!cur) return { result: "not_found" };
+    const normalized = normalizeQuestionFields(cur.type, fields);
+    if (!normalized.ok) return { result: "invalid", error: normalized.error };
+    if (attempts > 0 && cur.type === "multiple_choice") {
+      const reason = optionEditBlock(cur, normalized.columns);
+      if (reason) return { result: "attempts_block", reason };
+    }
     await tx
       .update(examQuestions)
       .set(normalized.columns)
       .where(and(eq(examQuestions.id, questionId), eq(examQuestions.examId, q.examId)));
-    return { result: "ok" as const };
+    return { result: "ok" };
   });
 }
 
-export async function deleteQuestion(questionId: string, actor: Actor): Promise<WriteResult> {
-  return db.transaction(async (tx) => {
-    const [q] = await tx
-      .select({ examId: examQuestions.examId })
-      .from(examQuestions)
-      .where(eq(examQuestions.id, questionId))
-      .limit(1);
-    if (!q) return "not_found";
-    const lock = await lockOwnedDraft(tx, q.examId, actor);
-    if (lock.state !== "draft") return lock.state;
-    await tx.delete(examQuestions).where(and(eq(examQuestions.id, questionId), eq(examQuestions.examId, q.examId)));
-    return "ok";
+export async function deleteQuestion(questionId: string, actor: Actor): Promise<EditOutcome> {
+  const [q] = await db
+    .select({ examId: examQuestions.examId })
+    .from(examQuestions)
+    .where(eq(examQuestions.id, questionId))
+    .limit(1);
+  if (!q) return { result: "not_found" };
+  return editOwnedExam(q.examId, actor, async (tx, { attempts }) => {
+    if (attempts > 0) return { result: "attempts_block", reason: "delete_question" };
+    const deleted = await tx
+      .delete(examQuestions)
+      .where(and(eq(examQuestions.id, questionId), eq(examQuestions.examId, q.examId)))
+      .returning({ id: examQuestions.id });
+    return deleted.length ? { result: "ok" } : { result: "not_found" };
   });
 }
 
-/** Apply a full new order; the list must cover exactly the exam's questions. Draft only. */
-export async function reorderQuestions(
-  examId: string,
-  actor: Actor,
-  orderedIds: string[],
-): Promise<WriteResult | "mismatch"> {
-  return db.transaction(async (tx) => {
-    const lock = await lockOwnedDraft(tx, examId, actor);
-    if (lock.state !== "draft") return lock.state;
+/** Apply a full new order; the list must cover exactly the exam's questions. Blocked once attempts exist. */
+export async function reorderQuestions(examId: string, actor: Actor, orderedIds: string[]): Promise<EditOutcome> {
+  return editOwnedExam(examId, actor, async (tx, { attempts }) => {
     const existing = await tx.select({ id: examQuestions.id }).from(examQuestions).where(eq(examQuestions.examId, examId));
     const ids = new Set(existing.map((r) => r.id));
-    if (ids.size !== orderedIds.length || !orderedIds.every((id) => ids.has(id))) return "mismatch";
+    if (ids.size !== orderedIds.length || !orderedIds.every((id) => ids.has(id))) return { result: "mismatch" };
+    if (attempts > 0) return { result: "attempts_block", reason: "reorder_questions" };
     for (const [index, id] of orderedIds.entries()) {
       await tx.update(examQuestions).set({ order: index }).where(and(eq(examQuestions.id, id), eq(examQuestions.examId, examId)));
     }
-    return "ok";
+    return { result: "ok" };
   });
 }
 
