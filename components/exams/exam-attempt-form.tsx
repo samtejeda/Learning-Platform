@@ -10,6 +10,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input, Textarea } from "@/components/ui/input";
+import { BLANK_INPUT_CLASS } from "./blank-style";
 import { ExamTimer } from "./exam-timer";
 
 type Answer = { selectedOption?: number; answerText?: string; blanks?: string[] };
@@ -171,12 +172,33 @@ export function ExamAttemptForm({
             <fieldset className="min-w-0">
               <legend className="mb-4 w-full">
                 <span className="mb-1 block text-xs font-medium tabular-nums text-muted">
-                  Question {i + 1} of {questions.length}
+                  Question {i + 1} of {questions.length} · {q.points} {q.points === 1 ? "point" : "points"}
                 </span>
-                <span className="block whitespace-pre-line text-base font-medium text-ink">
-                  {multiBlank ? splitOnBlanks(q.prompt).join(" ______ ") : q.prompt}
-                </span>
+                {!multiBlank && <span className="block whitespace-pre-line text-base font-medium text-ink">{q.prompt}</span>}
               </legend>
+              {multiBlank && (
+                <p className="mb-4 whitespace-pre-line text-base font-medium leading-[2.75rem] text-ink">
+                  {splitOnBlanks(q.prompt).map((text, n, all) => (
+                    <span key={n}>
+                      {text}
+                      {n < all.length - 1 && (
+                        <Input
+                          className={`mx-1 ${BLANK_INPUT_CLASS}`}
+                          maxLength={MAX_SHORT}
+                          value={a.blanks?.[n] ?? ""}
+                          aria-label={`Question ${i + 1}, blank ${n + 1}`}
+                          onChange={(e) => {
+                            const next = Array.from({ length: q.blankCount }, (_, k) => a.blanks?.[k] ?? "");
+                            next[n] = e.target.value;
+                            update(q.id, { blanks: next });
+                          }}
+                          onBlur={() => void save()}
+                        />
+                      )}
+                    </span>
+                  ))}
+                </p>
+              )}
               {!isText ? (
                 <div className="space-y-2">
                   {(q.type === "true_false" ? [...TRUE_FALSE_LABELS[language]] : (q.options ?? [])).map((label, idx) => (
@@ -198,24 +220,7 @@ export function ExamAttemptForm({
                     </label>
                   ))}
                 </div>
-              ) : multiBlank ? (
-                <div className="space-y-2">
-                  {Array.from({ length: q.blankCount }, (_, n) => (
-                    <Input
-                      key={n}
-                      maxLength={MAX_SHORT}
-                      value={a.blanks?.[n] ?? ""}
-                      aria-label={`Question ${i + 1}, blank ${n + 1}`}
-                      onChange={(e) => {
-                        const next = Array.from({ length: q.blankCount }, (_, k) => a.blanks?.[k] ?? "");
-                        next[n] = e.target.value;
-                        update(q.id, { blanks: next });
-                      }}
-                      onBlur={() => void save()}
-                    />
-                  ))}
-                </div>
-              ) : (
+              ) : multiBlank ? null : (
                 <div>
                   <Textarea
                     id={`a-${q.id}`}

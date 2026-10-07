@@ -63,7 +63,7 @@ export default async function StudentExamPage({
         </div>
         {exam.gradeOfRecord !== null && (
           <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-hairline pt-4">
-            <Badge tone="success">Your grade: {exam.gradeOfRecord}</Badge>
+            <Badge tone="success">Your grade: {exam.gradeOfRecord}%</Badge>
             <span className="text-xs text-muted">Highest graded attempt</span>
           </div>
         )}
@@ -99,13 +99,21 @@ export default async function StudentExamPage({
                   href={`${base}/attempt/${a.id}`}
                   className="-mx-2 flex min-h-14 items-center gap-3 rounded-md px-2 py-3 hover:bg-surface-cream-strong/60 focus-visible:focus-ring"
                 >
-                  <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-ink">Attempt {a.attemptNumber}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[15px] font-medium text-ink">Attempt {a.attemptNumber}</div>
+                    {a.score && !a.score.legacy && (
+                      <div className="mt-0.5 text-xs tabular-nums text-muted">
+                        {a.score.totalPoints} of {a.score.totalMax} {a.score.totalMax === 1 ? "point" : "points"}
+                        {a.score.status === "pending" ? " so far" : ""}
+                      </div>
+                    )}
+                  </div>
                   {a.submittedAt === null ? (
                     <Badge tone="neutral">In progress</Badge>
-                  ) : a.grade !== null ? (
-                    <Badge tone="success">Grade: {a.grade}</Badge>
+                  ) : a.score?.status === "final" ? (
+                    <Badge tone="success">{a.score.percent ?? a.grade}%</Badge>
                   ) : (
-                    <Badge tone="outline">Awaiting grading</Badge>
+                    <Badge tone="warning">Pending</Badge>
                   )}
                   <RowChevron />
                 </Link>
