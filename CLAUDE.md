@@ -189,9 +189,9 @@ Key tables to plan:
 - `lectures` (id, course_id, title, video_url, order, completion_threshold)
 - `lecture_progress` (student_id, lecture_id, watched_seconds, completed, last_updated)
 - `course_materials` (id, course_id, kind [file|link], title, description, storage_path, mime_type, url, order, uploaded_at, published_at)
-- `exams` (id, course_id, title_es/en, description_es/en, max_attempts, duration_minutes, published_at)
+- `exams` (id, course_id, title_es/en, description_es/en, max_attempts, duration_minutes, reveal_keys_after_attempts, published_at)
 - `exam_questions` (id, exam_id, type, prompt_es/en, options_es/en, correct_option [by position], reference_answer_es/en, points, order)
-- `exam_submissions` (id, exam_id, student_id, attempt_number, language, started_at, submitted_at, grade, feedback, graded_at, graded_by) — one row per attempt
+- `exam_submissions` (id, exam_id, student_id, attempt_number, language, started_at, submitted_at, grade [legacy 0–100, no longer written], feedback, graded_at, graded_by) — one row per attempt
 - `exam_answers` (id, submission_id, question_id, answer_text | selected_option | blank_answers, points_awarded [manual only], feedback)
 - `assignments` (id, course_id, title, description, due_date)
 - `assignment_submissions` (id, assignment_id, student_id, file_url, grade, feedback)
