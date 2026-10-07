@@ -30,6 +30,8 @@ git fetch origin && git checkout main && git pull origin main
 gh pr list --state all --limit 15 --json number,title,state,headRefName,mergeable,mergeStateStatus
 git branch -a; git worktree list                # build agents live in .claude/worktrees/<name>, branches worktree-*
 ```
+**Before calling any branch "unmerged", "finished but unpublished", or pushing/PR-ing it, compare it to `origin/main` after the fetch** (`git merge-base --is-ancestor <branch> origin/main`, `gh pr list --state all --head <branch>`), never to the local `main`, which is usually stale. (2026-10-07 mistake: two merged build branches were judged unmerged against a stale local `main`, and pushing them re-created remote branches GitHub had already auto-deleted.) Don't push a build agent's branch for it; agents push their own and open their own PRs.
+
 Then read `PROGRESS.md` (Open questions, Next up, Decisions, "Blocked on Sam"), and for each active build branch read its own tip: `git show <branch>:PROGRESS.md` (or the worktree copy) for "Sam:" / "Blocked on Sam" items, since a branch's notes only reach `main` when it merges. Cross-check what the docs say against reality (branches ahead of `main`, unpushed commits, CI state) and report discrepancies.
 
 ## Duty 1: PR and branch triage
