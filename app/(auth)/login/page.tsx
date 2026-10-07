@@ -44,6 +44,11 @@ function LoginCard() {
 
   return (
     <AuthCard title="Sign in" lead="Welcome back">
+      {linkError === "session" && (
+        <div className="mb-4">
+          <Alert tone="info">Your session ended. Please sign in again.</Alert>
+        </div>
+      )}
       {linkError === "link" && (
         <div className="mb-4">
           <Alert tone="error">That link is invalid or has expired. Please request a new one.</Alert>

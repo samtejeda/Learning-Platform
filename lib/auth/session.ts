@@ -8,7 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { logger } from "@/lib/logger";
-import { homeForRole, type Role } from "./roles";
+import { homeForRole, SESSION_ENDED_LOGIN_URL, type Role } from "./roles";
 
 export type CurrentUser = {
   id: string;
@@ -59,7 +59,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
 
 export async function requireUser(): Promise<CurrentUser> {
   const user = await getCurrentUser();
-  if (!user) redirect("/login");
+  if (!user) redirect(SESSION_ENDED_LOGIN_URL);
   return user;
 }
 
