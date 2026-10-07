@@ -8,6 +8,8 @@ import {
   isRole,
   roleFromClaims,
   safeNextPath,
+  shouldBounceFromAuthEntry,
+  SESSION_ENDED_LOGIN_URL,
 } from "./roles";
 
 describe("isRole / roleFromClaims", () => {
@@ -127,5 +129,31 @@ describe("safeNextPath", () => {
     expect(safeNextPath("%E0%A4%A")).toBe("/");
     expect(safeNextPath("/login")).toBe("/");
     expect(safeNextPath("/register?x=1")).toBe("/");
+  });
+});
+
+describe("shouldBounceFromAuthEntry (redirect-loop guard)", () => {
+  const q = (s: string) => new URLSearchParams(s);
+
+  it("bounces a signed-in visitor off auth pages", () => {
+    expect(shouldBounceFromAuthEntry("/login", q(""))).toBe(true);
+    expect(shouldBounceFromAuthEntry("/register", q("next=%2Fdashboard"))).toBe(true);
+  });
+
+  it("lets a dead-session user reach the login form", () => {
+    expect(shouldBounceFromAuthEntry("/login", q("error=session"))).toBe(false);
+  });
+
+  it("only exempts the session marker, not other error values", () => {
+    expect(shouldBounceFromAuthEntry("/login", q("error=link"))).toBe(true);
+  });
+
+  it("never bounces non-auth paths via this rule", () => {
+    expect(shouldBounceFromAuthEntry("/dashboard", q(""))).toBe(false);
+  });
+
+  it("the page-gate URL is exactly the one the proxy exempts", () => {
+    const url = new URL(SESSION_ENDED_LOGIN_URL, "https://x.test");
+    expect(shouldBounceFromAuthEntry(url.pathname, url.searchParams)).toBe(false);
   });
 });

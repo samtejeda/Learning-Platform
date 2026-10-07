@@ -56,6 +56,25 @@ export function isAuthEntryPath(pathname: string): boolean {
   return AUTH_ENTRY_PATHS.has(pathname);
 }
 
+/** Where a page-level gate sends a user whose session the auth server (or our
+ * profile table) no longer recognises. The proxy only sees a token whose
+ * signature is still valid, so without this marker it would bounce that user
+ * from /login straight back to their home page, which sends them to /login
+ * again: an endless redirect loop (found 2026-10-07 on production). */
+export const SESSION_ENDED_LOGIN_URL = "/login?error=session";
+
+/**
+ * Should the proxy send a token-holder away from this auth-entry page? Yes,
+ * unless a page-level gate just sent them here because their session is dead.
+ * Letting them through is safe: the form only creates a new session.
+ */
+export function shouldBounceFromAuthEntry(
+  pathname: string,
+  searchParams: URLSearchParams,
+): boolean {
+  return isAuthEntryPath(pathname) && searchParams.get("error") !== "session";
+}
+
 function hasPrefix(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(prefix + "/");
 }
