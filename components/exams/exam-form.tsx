@@ -13,6 +13,7 @@ type Initial = {
   descriptionEn: string | null;
   maxAttempts: number;
   durationMinutes: number;
+  revealKeysAfterAttempts?: boolean;
 };
 
 /** Create/edit an exam's bilingual title + description, attempts and time limit.
@@ -42,6 +43,10 @@ export function ExamForm({
           <Field label="Attempts allowed" name="maxAttempts" type="number" inputMode="numeric" min={1} max={10} defaultValue={v("maxAttempts", "2")} errors={state?.fieldErrors?.maxAttempts} />
           <Field label="Time limit (minutes)" name="durationMinutes" type="number" inputMode="numeric" min={1} max={480} defaultValue={v("durationMinutes", "20")} errors={state?.fieldErrors?.durationMinutes} />
         </div>
+        <label className="flex items-start gap-3 text-sm text-ink">
+          <input type="checkbox" name="revealKeysAfterAttempts" defaultChecked={initial?.revealKeysAfterAttempts ?? false} className="mt-0.5 size-5 accent-primary" />
+          <span>Show students the correct answers once they have used all their attempts</span>
+        </label>
         <SubmitButton pendingLabel="Saving…" fullWidth={false}>
           {submitLabel}
         </SubmitButton>

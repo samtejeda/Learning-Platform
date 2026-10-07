@@ -6,10 +6,10 @@ const Q2 = "22222222-2222-4222-8222-222222222222";
 const Q3 = "33333333-3333-4333-8333-333333333333";
 const Q4 = "44444444-4444-4444-8444-444444444444";
 const questions: AnswerQuestion[] = [
-  { id: Q1, type: "multiple_choice", optionsEs: ["a", "b", "c"], optionsEn: ["a", "b"] },
-  { id: Q2, type: "true_false", optionsEs: null, optionsEn: null },
-  { id: Q3, type: "fill_in_the_blank", optionsEs: null, optionsEn: null },
-  { id: Q4, type: "short_essay", optionsEs: null, optionsEn: null },
+  { id: Q1, type: "multiple_choice", optionsEs: ["a", "b", "c"], optionsEn: ["a", "b"], promptEs: "p", promptEn: "p" },
+  { id: Q2, type: "true_false", optionsEs: null, optionsEn: null, promptEs: "p", promptEn: "p" },
+  { id: Q3, type: "fill_in_the_blank", optionsEs: null, optionsEn: null, promptEs: "p", promptEn: "p" },
+  { id: Q4, type: "short_essay", optionsEs: null, optionsEn: null, promptEs: "p", promptEn: "p" },
 ];
 const full = [
   { questionId: Q1, selectedOption: 1 },
@@ -38,6 +38,22 @@ describe("validateAnswers", () => {
     expect(validateAnswers(questions, [{ questionId: Q1, selectedOption: 2 }], "es", false).ok).toBe(true);
     expect(validateAnswers(questions, [{ questionId: Q1, selectedOption: 2 }], "en", false).ok).toBe(false);
     expect(validateAnswers(questions, [{ questionId: Q2, selectedOption: 2 }], "es", false).ok).toBe(false);
+  });
+  it("fill with blanks takes one answer per blank, by the attempt's language", () => {
+    const B = "{{blank}}";
+    const fillQs: AnswerQuestion[] = [
+      { id: Q3, type: "fill_in_the_blank", optionsEs: null, optionsEn: null, promptEs: `a ${B} b ${B}`, promptEn: `x ${B}` },
+    ];
+    const ok = validateAnswers(fillQs, [{ questionId: Q3, blanks: [" one ", "two"] }], "es", true);
+    expect(ok.ok && ok.answers[0]).toMatchObject({ blankAnswers: ["one", "two"], answerText: null, selectedOption: null });
+    expect(validateAnswers(fillQs, [{ questionId: Q3, blanks: ["one"] }], "es", false).ok).toBe(false); // wrong count
+    expect(validateAnswers(fillQs, [{ questionId: Q3, blanks: ["one"] }], "en", true).ok).toBe(true); // en has one blank
+    expect(validateAnswers(fillQs, [{ questionId: Q3, answerText: "x" }], "es", false).ok).toBe(false); // legacy shape refused
+    // partial saves on autosave, but not enough for the final submit
+    expect(validateAnswers(fillQs, [{ questionId: Q3, blanks: ["one", ""] }], "es", false)).toMatchObject({ ok: true, unansweredQuestionIds: [Q3] });
+    expect(validateAnswers(fillQs, [{ questionId: Q3, blanks: ["one", ""] }], "es", true).ok).toBe(false);
+    const empty = validateAnswers(fillQs, [{ questionId: Q3, blanks: ["", " "] }], "es", false);
+    expect(empty.ok && empty.answers).toEqual([]);
   });
   it("treats blank text as unanswered and caps length per type", () => {
     const r = validateAnswers(questions, [{ questionId: Q3, answerText: "   " }], "es", false);

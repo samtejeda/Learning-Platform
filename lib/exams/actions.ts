@@ -196,25 +196,31 @@ export async function reorderQuestions(examId: string, input: unknown): Promise<
 
 // ─── Professor: grading (manual, every question type) ─────────────────────────
 
-/** Form fields: `grade`, `feedback`, and one `comment:<questionId>` per answer. */
+/** Form fields: `feedback`, one `points:<questionId>` per answered manual question, and one `comment:<questionId>` per answer. */
 export async function gradeSubmission(submissionId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
   const user = await assertRole("professor", "admin");
   const id = uuidSchema.safeParse(submissionId);
   if (!id.success) return { error: "Submission not found." };
 
   const answerFeedback: Record<string, string> = {};
+  const answerPoints: Record<string, string> = {};
   const flat: Record<string, string> = {};
   for (const [key, value] of formData.entries()) {
     if (typeof value !== "string") continue;
     if (key.startsWith("comment:")) answerFeedback[key.slice("comment:".length)] = value;
+    else if (key.startsWith("points:")) answerPoints[key.slice("points:".length)] = value;
     else flat[key] = value;
   }
-  const parsed = parseObject(gradeSchema, { ...flat, answerFeedback });
-  if (!parsed.ok) return parsed.state;
+  // Echo what was typed so a refused save keeps every field populated.
+  const typed: Record<string, string> = { ...flat };
+  for (const [qid, v] of Object.entries(answerPoints)) typed[`points:${qid}`] = v;
+  const parsed = parseObject(gradeSchema, { ...flat, answerFeedback, answerPoints });
+  if (!parsed.ok) return { ...parsed.state, values: typed };
 
   const r = await gradeSubmissionRow(id.data, user, parsed.data);
   if (r.result === "not_found") return { error: "Submission not found." };
   if (r.result === "not_submitted") return { error: "This attempt hasn't been submitted yet." };
+  if (r.result === "invalid") return { error: r.error ?? "Invalid points.", values: typed };
   revalidatePath(`/professor/exams/${r.examId}`, "layout");
   revalidatePath(`/courses/${r.courseId}`, "layout");
   return { success: "Grade saved." };

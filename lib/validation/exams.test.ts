@@ -37,10 +37,13 @@ describe("answersSchema", () => {
 });
 
 describe("gradeSchema", () => {
-  it("requires a grade in 0–100; blank is not 0", () => {
-    expect(gradeSchema.safeParse({ grade: "" }).success).toBe(false);
-    expect(gradeSchema.safeParse({ grade: "101" }).success).toBe(false);
-    expect(gradeSchema.safeParse({ grade: "-1" }).success).toBe(false);
-    expect(gradeSchema.parse({ grade: "87.5" }).grade).toBe(87.5);
+  it("takes points per question in half steps; blank is not 0", () => {
+    const u = "11111111-1111-4111-8111-111111111111";
+    expect(gradeSchema.parse({ answerPoints: { [u]: "2.5" } }).answerPoints[u]).toBe(2.5);
+    expect(gradeSchema.parse({ answerPoints: { [u]: "0" } }).answerPoints[u]).toBe(0);
+    for (const bad of ["", "-1", "101", "2.3", "abc"]) {
+      expect(gradeSchema.safeParse({ answerPoints: { [u]: bad } }).success).toBe(false);
+    }
+    expect(gradeSchema.safeParse({ answerPoints: { "not-a-uuid": "1" } }).success).toBe(false);
   });
 });

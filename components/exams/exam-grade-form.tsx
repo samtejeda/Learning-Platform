@@ -39,7 +39,7 @@ function CommentField({ answer, errors }: { answer: GradingAnswer; errors?: stri
   );
 }
 
-/** Manual grading: one overall grade (0–100) + feedback, and an optional comment per answer. */
+/** Manual grading: points per fill-in/essay question (auto-scored questions show their derived result), overall feedback, and an optional comment per answer. */
 export function ExamGradeForm({
   action,
   submission,
@@ -64,10 +64,36 @@ export function ExamGradeForm({
 
             <div className="mt-3 rounded-md bg-surface-soft px-3.5 py-3">
               <p className="text-xs font-medium text-muted">Student&apos;s answer</p>
-              <p className={`mt-0.5 whitespace-pre-wrap break-words text-[15px] ${(isChoice ? a.selectedOption !== null : a.answerText) ? "text-ink" : "text-muted"}`}>
-                {isChoice ? optionLabel(a, lang, a.selectedOption) : (a.answerText ?? "(no answer)")}
+              <p className={`mt-0.5 whitespace-pre-wrap break-words text-[15px] ${(isChoice ? a.selectedOption !== null : a.blanks || a.answerText) ? "text-ink" : "text-muted"}`}>
+                {isChoice
+                  ? optionLabel(a, lang, a.selectedOption)
+                  : a.blanks
+                    ? a.blanks.map((b, n) => `Blank ${n + 1}: ${b || "—"}`).join("\n")
+                    : (a.answerText ?? "(no answer)")}
               </p>
             </div>
+
+            {isChoice ? (
+              <p className="mt-2 text-sm text-body">
+                {a.state === "correct" ? "Correct" : a.state === "incorrect" ? "Incorrect" : "Not answered"} — {a.pointsEarned} of {a.points} points (scored automatically)
+              </p>
+            ) : a.state === "unanswered" ? (
+              <p className="mt-2 text-sm text-muted">Not answered — 0 of {a.points} points.</p>
+            ) : (
+              <div className="mt-3 max-w-40">
+                <Field
+                  label={`Points (0–${a.points})`}
+                  name={`points:${a.questionId}`}
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  max={a.points}
+                  step="0.5"
+                  defaultValue={state?.values?.[`points:${a.questionId}`] ?? (a.pointsAwarded !== null ? String(a.pointsAwarded) : "")}
+                  errors={state?.fieldErrors?.[`answerPoints.${a.questionId}`] ?? state?.fieldErrors?.[`points:${a.questionId}`]}
+                />
+              </div>
+            )}
 
             {(isChoice || a.referenceAnswer) && (
               <div className="mt-2 rounded-md border border-dashed border-muted-soft px-3.5 py-3">
@@ -90,20 +116,13 @@ export function ExamGradeForm({
       })}
 
       <Card>
-        <CardTitle>Overall grade</CardTitle>
-        <p className="mb-4 mt-1 text-sm text-muted">One grade for the whole attempt, 0 to 100. The student sees it with your feedback.</p>
+        <CardTitle>Result</CardTitle>
+        <p className="mb-4 mt-1 text-sm text-muted">
+          So far: {submission.score.totalPoints} of {submission.score.totalMax} points
+          {submission.score.status === "pending" ? ` (${submission.score.pendingCount} question${submission.score.pendingCount === 1 ? "" : "s"} still need points)` : ""}.
+          The student sees this with your feedback once saved.
+        </p>
         <div className="space-y-4">
-          <Field
-            label="Grade (0–100)"
-            name="grade"
-            type="number"
-            inputMode="decimal"
-            min={0}
-            max={100}
-            step="any"
-            defaultValue={state?.values?.grade ?? (submission.grade !== null ? String(submission.grade) : "")}
-            errors={state?.fieldErrors?.grade}
-          />
           <TextareaField
             label="Feedback for the student"
             name="feedback"
@@ -113,10 +132,10 @@ export function ExamGradeForm({
             defaultValue={state?.values?.feedback ?? submission.feedback ?? ""}
             errors={state?.fieldErrors?.feedback}
           />
-          {state?.error && !state.fieldErrors && <Alert tone="error">{state.error}</Alert>}
+          {state?.error && !state.fieldErrors?.feedback && <Alert tone="error">{state.error}</Alert>}
           {state?.success && <Alert tone="success">{state.success}</Alert>}
           <SubmitButton pendingLabel="Saving…" fullWidth={false} className="min-h-11 w-full sm:w-auto">
-            Save grade
+            Save grading
           </SubmitButton>
         </div>
       </Card>

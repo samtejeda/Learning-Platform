@@ -64,6 +64,13 @@
       "when": 1791315971312,
       "tag": "0008_icy_goliath",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791381751454,
+      "tag": "0009_natural_beast",
+      "breakpoints": true
     }
   ]
 }

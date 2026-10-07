@@ -5,8 +5,10 @@ import { db } from "@/lib/db";
 import { courses, examAnswers, examQuestions, examSubmissions, exams, users } from "@/lib/db/schema";
 import type { Actor } from "./courses";
 import { examPublishProblems, type PublishProblem } from "@/lib/exams/publish-rules";
-import { optionEditBlock, type AttemptBlock } from "@/lib/exams/edit-rules";
+import { blankEditBlock, optionEditBlock, type AttemptBlock } from "@/lib/exams/edit-rules";
 import { normalizeQuestionFields, type QuestionType } from "@/lib/exams/question";
+import { scoreSubmissions } from "./exam-results";
+import { gradeOfRecord, type AttemptScore } from "@/lib/exams/scoring";
 import { asStringArray, type ContentLanguage } from "@/lib/exams/language";
 import { MAX_QUESTIONS_PER_EXAM } from "@/lib/exams/limits";
 import type { ExamFormInput, GradeInput, QuestionFieldsInput } from "@/lib/validation/exams";
@@ -47,6 +49,7 @@ export type ProfessorExamSummary = {
   attemptCount: number;
   maxAttempts: number;
   durationMinutes: number;
+  revealKeysAfterAttempts: boolean;
 };
 
 /** Every exam in a course, any status. Caller has verified ownership of the course. */
@@ -59,8 +62,11 @@ export async function listExamsForProfessor(courseId: string): Promise<Professor
       publishedAt: exams.publishedAt,
       maxAttempts: exams.maxAttempts,
       durationMinutes: exams.durationMinutes,
-      questionCount: sql<number>`(select count(*)::int from ${examQuestions} q where q.exam_id = ${exams.id})`,
-      attemptCount: sql<number>`(select count(*)::int from ${examSubmissions} s where s.exam_id = ${exams.id})`,
+      revealKeysAfterAttempts: exams.revealKeysAfterAttempts,
+      // Qualified by hand: in a single-table select drizzle renders ${exams.id} unqualified,
+      // which would bind to the subquery's own id column.
+      questionCount: sql<number>`(select count(*)::int from ${examQuestions} q where q.exam_id = "exams"."id")`,
+      attemptCount: sql<number>`(select count(*)::int from ${examSubmissions} s where s.exam_id = "exams"."id")`,
     })
     .from(exams)
     .where(eq(exams.courseId, courseId))
@@ -80,6 +86,8 @@ export type ProfessorQuestion = {
   correctOption: number | null;
   referenceAnswerEs: string | null;
   referenceAnswerEn: string | null;
+  /** Weight in points (1–100). */
+  points: number;
 };
 
 export type OwnedExam = {
@@ -91,6 +99,7 @@ export type OwnedExam = {
   descriptionEn: string | null;
   maxAttempts: number;
   durationMinutes: number;
+  revealKeysAfterAttempts: boolean;
   status: ExamStatus;
   attemptCount: number;
   questions: ProfessorQuestion[];
@@ -108,6 +117,7 @@ export async function getOwnedExam(examId: string, actor: Actor): Promise<OwnedE
       descriptionEn: exams.descriptionEn,
       maxAttempts: exams.maxAttempts,
       durationMinutes: exams.durationMinutes,
+      revealKeysAfterAttempts: exams.revealKeysAfterAttempts,
       publishedAt: exams.publishedAt,
       attemptCount: sql<number>`(select count(*)::int from ${examSubmissions} s where s.exam_id = ${exams.id})`,
     })
@@ -134,6 +144,7 @@ async function listQuestions(examId: string): Promise<ProfessorQuestion[]> {
       correctOption: examQuestions.correctOption,
       referenceAnswerEs: examQuestions.referenceAnswerEs,
       referenceAnswerEn: examQuestions.referenceAnswerEn,
+      points: examQuestions.points,
     })
     .from(examQuestions)
     .where(eq(examQuestions.examId, examId))
@@ -153,11 +164,37 @@ export type ProfessorSubmissionRow = {
   language: ContentLanguage;
   startedAt: Date;
   submittedAt: Date | null;
+  /** Derived at read time (auto points now, manual points once awarded). Null while in progress. */
+  score: ProfessorScoreSummary | null;
+  /** Final percent (0–100) of this attempt; null while in progress or pending manual grading. */
   grade: number | null;
   gradedAt: Date | null;
-  /** Highest graded attempt for this student on this exam (grade of record). */
+  /** Highest FINAL percent for this student on this exam (grade of record). */
   gradeOfRecord: number | null;
 };
+
+export type ProfessorScoreSummary = {
+  status: "pending" | "final";
+  legacy: boolean;
+  autoPoints: number;
+  autoMax: number;
+  manualPoints: number;
+  manualMax: number;
+  totalPoints: number;
+  totalMax: number;
+  percent: number | null;
+  provisionalPercent: number | null;
+  /** Manual questions still needing points. */
+  pendingCount: number;
+};
+
+function summarize(sc: AttemptScore): ProfessorScoreSummary {
+  return {
+    status: sc.status, legacy: sc.legacy, autoPoints: sc.autoPoints, autoMax: sc.autoMax,
+    manualPoints: sc.manualPoints, manualMax: sc.manualMax, totalPoints: sc.totalPoints, totalMax: sc.totalMax,
+    percent: sc.percent, provisionalPercent: sc.provisionalPercent, pendingCount: sc.pendingQuestionIds.length,
+  };
+}
 
 /** Close every expired in-progress attempt for an exam (no cron: closed lazily on read). */
 async function closeExpiredForExam(examId: string): Promise<void> {
@@ -183,27 +220,35 @@ export async function listSubmissionsForExam(
     .limit(1);
   if (!owned) return null;
   await closeExpiredForExam(examId);
-  return db
+  const rows = await db
     .select({
       id: examSubmissions.id,
+      studentId: examSubmissions.studentId,
       studentName: users.fullName,
       studentEmail: users.email,
       attemptNumber: examSubmissions.attemptNumber,
       language: examSubmissions.language,
       startedAt: examSubmissions.startedAt,
       submittedAt: examSubmissions.submittedAt,
-      grade: examSubmissions.grade,
+      legacyGrade: examSubmissions.grade,
       gradedAt: examSubmissions.gradedAt,
-      gradeOfRecord: sql<number | null>`(
-        select max(g.grade) from ${examSubmissions} g
-        where g.exam_id = ${examSubmissions.examId} and g.student_id = ${examSubmissions.studentId}
-          and g.graded_at is not null
-      )`,
     })
     .from(examSubmissions)
     .innerJoin(users, eq(examSubmissions.studentId, users.id))
     .where(eq(examSubmissions.examId, examId))
     .orderBy(asc(users.fullName), asc(users.email), asc(examSubmissions.attemptNumber));
+  const scores = await scoreSubmissions(
+    rows.filter((r) => r.submittedAt).map((r) => ({ id: r.id, examId, gradedAt: r.gradedAt, grade: r.legacyGrade })),
+  );
+  return rows.map(({ studentId, legacyGrade: _legacy, ...r }) => {
+    const sc = scores.get(r.id) ?? null;
+    return {
+      ...r,
+      score: sc ? summarize(sc) : null,
+      grade: sc?.percent ?? null,
+      gradeOfRecord: gradeOfRecord(rows.filter((x) => x.studentId === studentId && scores.has(x.id)).map((x) => scores.get(x.id)!)),
+    };
+  });
 }
 
 export type GradingAnswer = {
@@ -218,6 +263,16 @@ export type GradingAnswer = {
   referenceAnswer: string | null;
   selectedOption: number | null;
   answerText: string | null;
+  /** Fill in the blank with blanks: the student's answer per blank, in blank order. */
+  blanks: string[] | null;
+  /** Weight in points. */
+  points: number;
+  /** Auto-scored: correct/incorrect/unanswered. Manual: awaiting/graded/unanswered. */
+  state: "correct" | "incorrect" | "unanswered" | "awaiting" | "graded";
+  /** Points earned on this question (auto: derived now; manual: awarded, 0 until graded). */
+  pointsEarned: number;
+  /** Manual questions only: the awarded points (null = not graded yet). */
+  pointsAwarded: number | null;
   feedback: string | null;
 };
 
@@ -231,9 +286,10 @@ export type SubmissionForGrading = {
   attemptNumber: number;
   language: ContentLanguage;
   submittedAt: Date;
-  grade: number | null;
+  /** Overall feedback. */
   feedback: string | null;
   gradedAt: Date | null;
+  score: ProfessorScoreSummary;
   answers: GradingAnswer[];
 };
 
@@ -258,7 +314,7 @@ export async function getSubmissionForGrading(
       attemptNumber: examSubmissions.attemptNumber,
       language: examSubmissions.language,
       submittedAt: examSubmissions.submittedAt,
-      grade: examSubmissions.grade,
+      legacyGrade: examSubmissions.grade,
       feedback: examSubmissions.feedback,
       gradedAt: examSubmissions.gradedAt,
     })
@@ -289,8 +345,11 @@ export async function getSubmissionForGrading(
       correctOption: examQuestions.correctOption,
       referenceAnswerEs: examQuestions.referenceAnswerEs,
       referenceAnswerEn: examQuestions.referenceAnswerEn,
+      points: examQuestions.points,
       selectedOption: examAnswers.selectedOption,
       answerText: examAnswers.answerText,
+      blankAnswers: examAnswers.blankAnswers,
+      pointsAwarded: examAnswers.pointsAwarded,
       feedback: examAnswers.feedback,
     })
     .from(examQuestions)
@@ -300,6 +359,9 @@ export async function getSubmissionForGrading(
     )
     .where(eq(examQuestions.examId, row.examId))
     .orderBy(asc(examQuestions.order), asc(examQuestions.createdAt));
+
+  const score = (await scoreSubmissions([{ id: row.id, examId: row.examId, gradedAt: row.gradedAt, grade: row.legacyGrade }])).get(row.id)!;
+  const perQ = new Map(score.perQuestion.map((p) => [p.questionId, p]));
 
   return {
     id: row.id,
@@ -311,9 +373,9 @@ export async function getSubmissionForGrading(
     attemptNumber: row.attemptNumber,
     language: lang,
     submittedAt: fresh.submittedAt,
-    grade: row.grade,
     feedback: row.feedback,
     gradedAt: row.gradedAt,
+    score: summarize(score),
     answers: qs.map((q) => ({
       questionId: q.id,
       order: q.order,
@@ -324,6 +386,11 @@ export async function getSubmissionForGrading(
       referenceAnswer: lang === "es" ? q.referenceAnswerEs : q.referenceAnswerEn,
       selectedOption: q.selectedOption,
       answerText: q.answerText,
+      blanks: asStringArray(q.blankAnswers).length ? asStringArray(q.blankAnswers) : null,
+      points: q.points,
+      state: perQ.get(q.id)!.state,
+      pointsEarned: perQ.get(q.id)!.points,
+      pointsAwarded: q.type === "multiple_choice" || q.type === "true_false" ? null : q.pointsAwarded,
       feedback: q.feedback,
     })),
   };
@@ -526,7 +593,13 @@ export async function updateQuestion(questionId: string, actor: Actor, fields: Q
   if (!q) return { result: "not_found" };
   return editOwnedExam(q.examId, actor, async (tx, { attempts }) => {
     const [cur] = await tx
-      .select({ type: examQuestions.type, optionsEs: examQuestions.optionsEs, optionsEn: examQuestions.optionsEn })
+      .select({
+        type: examQuestions.type,
+        optionsEs: examQuestions.optionsEs,
+        optionsEn: examQuestions.optionsEn,
+        promptEs: examQuestions.promptEs,
+        promptEn: examQuestions.promptEn,
+      })
       .from(examQuestions)
       .where(and(eq(examQuestions.id, questionId), eq(examQuestions.examId, q.examId)));
     if (!cur) return { result: "not_found" };
@@ -534,6 +607,10 @@ export async function updateQuestion(questionId: string, actor: Actor, fields: Q
     if (!normalized.ok) return { result: "invalid", error: normalized.error };
     if (attempts > 0 && cur.type === "multiple_choice") {
       const reason = optionEditBlock(cur, normalized.columns);
+      if (reason) return { result: "attempts_block", reason };
+    }
+    if (attempts > 0 && cur.type === "fill_in_the_blank") {
+      const reason = blankEditBlock(cur, normalized.columns);
       if (reason) return { result: "attempts_block", reason };
     }
     await tx
@@ -576,16 +653,20 @@ export async function reorderQuestions(examId: string, actor: Actor, orderedIds:
 }
 
 /**
- * Record a manual grade. Ownership joined; only a SUBMITTED attempt can be
- * graded. Per-answer comments apply only to answers that belong to this
- * submission (other ids in the map are ignored); answers missing from the
- * map have their comment cleared, so the form is the source of truth.
+ * Record manual grading: points per answered manual question (fill in the
+ * blank / essay), 0..that question's weight in half-point steps, plus overall
+ * feedback and optional per-answer comments. Ownership joined; only a
+ * SUBMITTED attempt can be graded. Every answered manual question needs
+ * points (the form is the source of truth: missing comment = cleared).
+ * Ids in the maps that aren't this submission's answers are ignored. The
+ * legacy overall `grade` is cleared, so a re-graded old attempt moves to the
+ * points model. Multiple choice / true-false are never graded here.
  */
 export async function gradeSubmission(
   submissionId: string,
   actor: Actor,
   input: GradeInput,
-): Promise<{ result: "ok" | "not_found" | "not_submitted"; examId?: string; courseId?: string }> {
+): Promise<{ result: "ok" | "not_found" | "not_submitted" | "invalid"; error?: string; examId?: string; courseId?: string }> {
   return db.transaction(async (tx) => {
     const ownership =
       actor.role === "admin"
@@ -607,20 +688,30 @@ export async function gradeSubmission(
     if (!row) return { result: "not_found" as const };
     if (!row.submittedAt) return { result: "not_submitted" as const };
 
+    const answers = await tx
+      .select({ id: examAnswers.id, questionId: examAnswers.questionId, type: examQuestions.type, weight: examQuestions.points })
+      .from(examAnswers)
+      .innerJoin(examQuestions, eq(examAnswers.questionId, examQuestions.id))
+      .where(eq(examAnswers.submissionId, submissionId));
+
+    const awards = new Map<string, number>();
+    for (const a of answers) {
+      if (a.type === "multiple_choice" || a.type === "true_false") continue;
+      const pts = input.answerPoints[a.questionId];
+      if (pts === undefined) return { result: "invalid" as const, error: "Award points for every question that needs grading." };
+      if (pts > a.weight) return { result: "invalid" as const, error: `Points can't be more than the question's ${a.weight}.` };
+      awards.set(a.id, pts);
+    }
+
     await tx
       .update(examSubmissions)
-      .set({ grade: input.grade, feedback: input.feedback, gradedAt: new Date(), gradedBy: actor.id })
+      .set({ grade: null, feedback: input.feedback, gradedAt: new Date(), gradedBy: actor.id })
       .where(eq(examSubmissions.id, submissionId));
-
-    const answers = await tx
-      .select({ id: examAnswers.id, questionId: examAnswers.questionId })
-      .from(examAnswers)
-      .where(eq(examAnswers.submissionId, submissionId));
     for (const a of answers) {
       const comment = input.answerFeedback[a.questionId]?.trim();
       await tx
         .update(examAnswers)
-        .set({ feedback: comment ? comment : null })
+        .set({ feedback: comment ? comment : null, pointsAwarded: awards.get(a.id) ?? null })
         .where(eq(examAnswers.id, a.id));
     }
     return { result: "ok" as const, examId: row.examId, courseId: row.courseId };

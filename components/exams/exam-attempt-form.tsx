@@ -4,20 +4,25 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { StudentAttempt } from "@/lib/data/exam-attempts";
 import { submitExamAttempt } from "@/lib/exams/actions";
+import { splitOnBlanks } from "@/lib/exams/blanks";
 import { TRUE_FALSE_LABELS } from "@/lib/exams/language";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/input";
+import { Input, Textarea } from "@/components/ui/input";
 import { ExamTimer } from "./exam-timer";
 
-type Answer = { selectedOption?: number; answerText?: string };
+type Answer = { selectedOption?: number; answerText?: string; blanks?: string[] };
+type WireAnswer = { questionId: string; selectedOption?: number; answerText?: string; blanks?: string[] };
 const AUTOSAVE_MS = 30_000;
 const MAX_ESSAY = 10000;
 const MAX_SHORT = 500;
 
 const isAnswered = (a: Answer | undefined) =>
-  !!a && (a.selectedOption !== undefined || (a.answerText !== undefined && a.answerText.trim() !== ""));
+  !!a &&
+  (a.selectedOption !== undefined ||
+    (a.answerText !== undefined && a.answerText.trim() !== "") ||
+    (a.blanks !== undefined && a.blanks.length > 0 && a.blanks.every((b) => b.trim() !== "")));
 
 /**
  * Taking an exam. The countdown is only a display: the server enforces the
@@ -42,7 +47,14 @@ export function ExamAttemptForm({
   const router = useRouter();
   const [answers, setAnswers] = useState<Record<string, Answer>>(() =>
     Object.fromEntries(
-      saved.map((a) => [a.questionId, a.selectedOption !== null ? { selectedOption: a.selectedOption } : { answerText: a.answerText ?? "" }]),
+      saved.map((a) => [
+        a.questionId,
+        a.selectedOption !== null
+          ? { selectedOption: a.selectedOption }
+          : a.blankAnswers
+            ? { blanks: a.blankAnswers }
+            : { answerText: a.answerText ?? "" },
+      ]),
     ),
   );
   const answersRef = useRef(answers);
@@ -59,11 +71,13 @@ export function ExamAttemptForm({
   const failedBefore = useRef(false);
 
   const payload = useCallback(
-    (): { answers: { questionId: string; selectedOption?: number; answerText?: string }[] } => ({
-      answers: Object.entries(answersRef.current).flatMap(([questionId, a]): { questionId: string; selectedOption?: number; answerText?: string }[] =>
+    (): { answers: WireAnswer[] } => ({
+      answers: Object.entries(answersRef.current).flatMap(([questionId, a]): WireAnswer[] =>
         a.selectedOption !== undefined
           ? [{ questionId, selectedOption: a.selectedOption }]
-          : a.answerText !== undefined && a.answerText.trim() !== ""
+          : a.blanks !== undefined
+            ? [{ questionId, blanks: a.blanks }]
+            : a.answerText !== undefined && a.answerText.trim() !== ""
             ? [{ questionId, answerText: a.answerText }]
             : [],
       ),
@@ -150,6 +164,7 @@ export function ExamAttemptForm({
       {questions.map((q, i) => {
         const a = answers[q.id] ?? {};
         const isText = q.type === "fill_in_the_blank" || q.type === "short_essay";
+        const multiBlank = q.type === "fill_in_the_blank" && q.blankCount > 0;
         const limit = q.type === "short_essay" ? MAX_ESSAY : MAX_SHORT;
         return (
           <Card key={q.id} variant="outlined" className="sm:p-6">
@@ -158,7 +173,9 @@ export function ExamAttemptForm({
                 <span className="mb-1 block text-xs font-medium tabular-nums text-muted">
                   Question {i + 1} of {questions.length}
                 </span>
-                <span className="block whitespace-pre-line text-base font-medium text-ink">{q.prompt}</span>
+                <span className="block whitespace-pre-line text-base font-medium text-ink">
+                  {multiBlank ? splitOnBlanks(q.prompt).join(" ______ ") : q.prompt}
+                </span>
               </legend>
               {!isText ? (
                 <div className="space-y-2">
@@ -179,6 +196,23 @@ export function ExamAttemptForm({
                       />
                       <span className="min-w-0 flex-1 break-words text-[15px] text-ink">{label}</span>
                     </label>
+                  ))}
+                </div>
+              ) : multiBlank ? (
+                <div className="space-y-2">
+                  {Array.from({ length: q.blankCount }, (_, n) => (
+                    <Input
+                      key={n}
+                      maxLength={MAX_SHORT}
+                      value={a.blanks?.[n] ?? ""}
+                      aria-label={`Question ${i + 1}, blank ${n + 1}`}
+                      onChange={(e) => {
+                        const next = Array.from({ length: q.blankCount }, (_, k) => a.blanks?.[k] ?? "");
+                        next[n] = e.target.value;
+                        update(q.id, { blanks: next });
+                      }}
+                      onBlur={() => void save()}
+                    />
                   ))}
                 </div>
               ) : (
