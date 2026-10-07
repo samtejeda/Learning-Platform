@@ -17,8 +17,8 @@ import { SyllabusManager } from "@/components/syllabus-manager";
 import { SyllabusViewer } from "@/components/syllabus-viewer";
 import { CourseMaterialsManager } from "@/components/course-materials-manager";
 import { CourseMaterialForm } from "@/components/course-material-form";
+import { ProfessorExamList } from "@/components/exams/professor-exam-list";
 import { ExamForm } from "@/components/exams/exam-form";
-import { Badge } from "@/components/ui/badge";
 
 const paramsSchema = z.object({ courseId: z.uuid() });
 
@@ -113,24 +113,7 @@ export default async function ProfessorCoursePage({
         <CourseMaterialForm courseId={course.id} />
       </Card>
 
-      <Card>
-        <CardTitle>Exams</CardTitle>
-        {examList.length === 0 ? (
-          <p className="mt-2 text-sm text-muted">No exams yet.</p>
-        ) : (
-          <ul className="mt-3 divide-y divide-hairline">
-            {examList.map((e) => (
-              <li key={e.id} className="flex flex-wrap items-center gap-2 py-3">
-                <Link href={`/professor/exams/${e.id}`} className="min-w-0 flex-1 truncate font-medium hover:underline">
-                  {e.titleEn || e.titleEs || "Untitled exam"}
-                </Link>
-                <Badge tone={e.status === "published" ? "success" : "outline"}>{e.status === "published" ? "Published" : "Draft"}</Badge>
-                <span className="text-xs text-muted">{e.questionCount} questions · {e.durationMinutes} min · {e.maxAttempts} attempts</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
+      <ProfessorExamList exams={examList} />
 
       <Card variant="outlined">
         <CardTitle>Add an exam</CardTitle>

@@ -17,7 +17,15 @@ export function StartAttemptForm({
   defaultLanguage: ContentLanguage;
   resuming: boolean;
 }) {
-  const [state, formAction] = useActionState<ActionState, FormData>(action, null);
+  // When this page was server-rendered (hard load or refresh), the browser's
+  // FormData also carries React's hidden `$ACTION_*` bookkeeping fields, which
+  // the action's strict schema rejects ("Unrecognized keys"). Send only the
+  // real field so Start works after a refresh as well as after a soft navigation.
+  const [state, formAction] = useActionState<ActionState, FormData>((prev, formData) => {
+    const clean = new FormData();
+    for (const [key, value] of formData.entries()) if (!key.startsWith("$ACTION")) clean.append(key, value);
+    return action(prev, clean);
+  }, null);
   const [language, setLanguage] = useState<ContentLanguage>(defaultLanguage);
 
   return (
@@ -25,7 +33,7 @@ export function StartAttemptForm({
       {state?.error && <Alert tone="error">{state.error}</Alert>}
       {resuming ? (
         <>
-          <p className="text-sm text-muted">You have an attempt in progress. It keeps its original language.</p>
+          <p className="text-sm text-muted">This attempt keeps the language you started it in.</p>
           <input type="hidden" name="language" value={language} />
         </>
       ) : (
@@ -40,7 +48,7 @@ export function StartAttemptForm({
           ]}
         />
       )}
-      <SubmitButton pendingLabel="Starting…" fullWidth={false}>
+      <SubmitButton pendingLabel="Starting…" fullWidth={false} className="min-h-11 w-full sm:w-auto">
         {resuming ? "Resume attempt" : "Start attempt"}
       </SubmitButton>
     </form>
