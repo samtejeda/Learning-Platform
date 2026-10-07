@@ -4,7 +4,7 @@ import {
   canAccessPath,
   homeForRole,
   isApiPath,
-  isAuthEntryPath,
+  shouldBounceFromAuthEntry,
   isPublicPath,
   roleFromClaims,
 } from "@/lib/auth/roles";
@@ -72,7 +72,14 @@ export async function proxy(request: NextRequest) {
   // treat them as the least-privileged role here. The DB-backed gate decides.
   const role = roleFromClaims(claims) ?? "student";
 
-  if (isAuthEntryPath(pathname) || !canAccessPath(pathname, role)) {
+  // A valid token does not prove the session still exists (revoked, user
+  // removed, no profile row). When a page-level gate sends such a user to
+  // /login?error=session, let them reach the form instead of bouncing them
+  // back, or the two gates redirect each other forever.
+  if (
+    shouldBounceFromAuthEntry(pathname, request.nextUrl.searchParams) ||
+    !canAccessPath(pathname, role)
+  ) {
     const homeUrl = request.nextUrl.clone();
     homeUrl.pathname = homeForRole(role);
     homeUrl.search = "";
