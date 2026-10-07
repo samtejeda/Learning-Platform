@@ -81,8 +81,8 @@ export async function revealedKeysForStudent(
     .select({
       reveal: exams.revealKeysAfterAttempts,
       maxAttempts: exams.maxAttempts,
-      used: sql<number>`(select count(*)::int from ${examSubmissions} s where s.exam_id = ${exams.id} and s.student_id = ${studentId})`,
-      open: sql<number>`(select count(*)::int from ${examSubmissions} s where s.exam_id = ${exams.id} and s.student_id = ${studentId} and s.submitted_at is null)`,
+      used: sql<number>`(select count(*)::int from ${examSubmissions} s where s.exam_id = ${examId}::uuid and s.student_id = ${studentId}::uuid)`,
+      open: sql<number>`(select count(*)::int from ${examSubmissions} s where s.exam_id = ${examId}::uuid and s.student_id = ${studentId}::uuid and s.submitted_at is null)`,
     })
     .from(exams)
     .where(and(eq(exams.id, examId), isNotNull(exams.publishedAt)));

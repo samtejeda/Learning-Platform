@@ -13,7 +13,7 @@ import {
   saveAttemptAnswers,
   startAttempt,
 } from "@/lib/data/exam-attempts";
-import { getOwnedExam, getSubmissionForGrading, listSubmissionsForExam } from "@/lib/data/exams";
+import { getOwnedExam, listExamsForProfessor, getSubmissionForGrading, listSubmissionsForExam } from "@/lib/data/exams";
 import {
   createExam,
   createQuestion,
@@ -52,10 +52,10 @@ async function redirectTarget(p: Promise<unknown>): Promise<string> {
   throw new Error("expected a redirect");
 }
 
-const MC = { type: "multiple_choice", promptEs: "PLACEHOLDER mc es", promptEn: "PLACEHOLDER mc en", optionsEs: "e0\ne1\ne2", optionsEn: "n0\nn1\nn2", correctOption: "1" };
+const MC = { type: "multiple_choice", promptEs: "PLACEHOLDER mc es", promptEn: "PLACEHOLDER mc en", optionsEs: "e0\ne1\ne2", optionsEn: "n0\nn1\nn2", correctOption: "1", points: "2" };
 const TF = { type: "true_false", promptEs: "PLACEHOLDER tf es", promptEn: "PLACEHOLDER tf en", correctOption: "0" };
-const FILL = { type: "fill_in_the_blank", promptEs: "PLACEHOLDER fill es", promptEn: "PLACEHOLDER fill en", referenceAnswerEs: "REFKEY_FILL_ES", referenceAnswerEn: "REFKEY_FILL_EN" };
-const ESSAY = { type: "short_essay", promptEs: "PLACEHOLDER essay es", promptEn: "PLACEHOLDER essay en", referenceAnswerEs: "REFKEY_ESSAY_ES", referenceAnswerEn: "REFKEY_ESSAY_EN" };
+const FILL = { type: "fill_in_the_blank", promptEs: "PLACEHOLDER fill es {{blank}} mid {{blank}}", promptEn: "PLACEHOLDER fill en {{blank}} mid {{blank}}", referenceAnswerEs: "REFKEY_FILL_ES", referenceAnswerEn: "REFKEY_FILL_EN", points: "3" };
+const ESSAY = { type: "short_essay", promptEs: "PLACEHOLDER essay es", promptEn: "PLACEHOLDER essay en", referenceAnswerEs: "REFKEY_ESSAY_ES", referenceAnswerEn: "REFKEY_ESSAY_EN", points: "4" };
 
 describe("exams: authoring, publish gate, attempts, timing, grading", () => {
   let courseId: string;
@@ -96,7 +96,8 @@ describe("exams: authoring, publish gate, attempts, timing, grading", () => {
     const exam = (await getOwnedExam(examId, A))!;
     qIds = exam.questions.map((q) => q.id);
     expect(exam.questions.map((q) => q.type)).toEqual(["multiple_choice", "true_false", "fill_in_the_blank", "short_essay"]);
-    expect(exam.questions[0]).toMatchObject({ optionsEs: ["e0", "e1", "e2"], correctOption: 1 });
+    expect(exam.questions[0]).toMatchObject({ optionsEs: ["e0", "e1", "e2"], correctOption: 1, points: 2 });
+    expect(exam.questions.map((q) => q.points)).toEqual([2, 1, 3, 4]);
     expect(exam.questions[1]).toMatchObject({ optionsEs: null, correctOption: 0 });
     expect(exam.questions[2]).toMatchObject({ correctOption: null, referenceAnswerEs: "REFKEY_FILL_ES" });
   });
@@ -142,6 +143,48 @@ describe("exams: authoring, publish gate, attempts, timing, grading", () => {
     expect(await deleteQuestion(extra)).toEqual({ success: "Question deleted." });
   });
 
+  it("auto-scored questions can't be saved or published without a correct answer; points are bounded", async () => {
+    actAs(SEED.profA.id);
+    const to = await redirectTarget(createExam(courseId, null, fd(examFields)));
+    const id = to.split("/").pop()!;
+    const { correctOption: _k, ...mcNoKey } = MC;
+    const { correctOption: _t, ...tfNoKey } = TF;
+    expect((await createQuestion(id, null, fd(mcNoKey)))?.error).toMatch(/Mark the correct answer/);
+    expect((await createQuestion(id, null, fd(tfNoKey)))?.error).toMatch(/true or false/);
+    expect((await createQuestion(id, null, fd({ ...MC, correctOption: "3" })))?.error).toMatch(/one of the options/);
+    expect((await createQuestion(id, null, fd({ ...ESSAY, points: "0" })))?.error).toBeTruthy();
+    expect((await createQuestion(id, null, fd({ ...ESSAY, points: "101" })))?.error).toBeTruthy();
+    expect((await createQuestion(id, null, fd({ ...ESSAY, points: "1.5" })))?.error).toBeTruthy();
+    expect((await getOwnedExam(id, A))!.questions).toHaveLength(0);
+    // a legacy draft row with no key (from before keys were required) is still refused at publish
+    await createQuestion(id, null, fd(TF));
+    await db.execute(sql`update exam_questions set correct_option = null where exam_id = ${id}::uuid`);
+    expect((await publishExam(id))?.fieldErrors?._publish).toEqual(["Question 1: Mark whether the key is true or false."]);
+    expect((await updateQuestion((await getOwnedExam(id, A))!.questions[0].id, null, fd({ promptEs: "PLACEHOLDER tf es" })))?.error).toBeTruthy(); // saving without a key is refused too
+    actAs(SEED.profB.id);
+    expect(await createQuestion(id, null, fd(TF))).toEqual({ error: "Exam not found." });
+    actAs(SEED.profA.id);
+    expect(await redirectTarget(deleteExam(id))).toBe(`/professor/courses/${courseId}`);
+  });
+
+  it("fill in the blank: es and en need the same number of blanks, to publish and on every edit", async () => {
+    actAs(SEED.profA.id);
+    const to = await redirectTarget(createExam(courseId, null, fd(examFields)));
+    const id = to.split("/").pop()!;
+    const mismatch = { ...FILL, promptEn: "PLACEHOLDER fill en {{blank}}" };
+    expect(await createQuestion(id, null, fd(mismatch))).toEqual({ success: "Question added." }); // drafts may be incomplete
+    expect((await publishExam(id))?.fieldErrors?._publish).toEqual(["Question 1: Spanish and English prompts must have the same number of blanks."]);
+    const qid = (await getOwnedExam(id, A))!.questions[0].id;
+    expect(await updateQuestion(qid, null, fd(FILL))).toEqual({ success: "Saved." });
+    expect(await publishExam(id)).toMatchObject({ success: expect.any(String) });
+    // published: an edit that unbalances the blanks is rejected and rolled back
+    expect((await updateQuestion(qid, null, fd(mismatch)))?.error).toMatch(/Nothing was saved.*same number of blanks/);
+    expect((await getOwnedExam(id, A))!.questions[0].promptEn).toBe(FILL.promptEn);
+    expect(await updateQuestion(qid, null, fd({ ...FILL, promptEs: "PLACEHOLDER only {{blank}}", promptEn: "PLACEHOLDER only {{blank}}" }))).toEqual({ success: "Saved." });
+    expect(await unpublishExam(id)).toEqual({ success: "Unpublished." });
+    expect(await redirectTarget(deleteExam(id))).toBe(`/professor/courses/${courseId}`);
+  });
+
   it("the publish gate re-runs on every edit to a published exam: rejected, rolled back, still published", async () => {
     actAs(SEED.profA.id);
     const before = (await getOwnedExam(examId, A))!;
@@ -150,7 +193,7 @@ describe("exams: authoring, publish gate, attempts, timing, grading", () => {
     expect((await updateExam(examId, null, fd({ ...examFields, titleEs: "" })))?.error).toMatch(/Add a Spanish title/);
     // MC options that differ in count between languages, or a key out of range
     expect((await updateQuestion(qIds[0], null, fd({ ...MC, optionsEn: "n0\nn1" })))?.error).toMatch(/same number of options/);
-    expect((await updateQuestion(qIds[0], null, fd({ ...MC, correctOption: "" })))?.error).toMatch(/Mark which option/);
+    expect((await updateQuestion(qIds[0], null, fd({ ...MC, correctOption: "" })))?.error).toMatch(/Mark the correct answer/);
     const after = (await getOwnedExam(examId, A))!;
     expect(after.status).toBe("published");
     expect(after.questions).toEqual(before.questions);
@@ -163,6 +206,12 @@ describe("exams: authoring, publish gate, attempts, timing, grading", () => {
     const draft = to.split("/").pop()!;
     expect(await createQuestion(draft, null, fd({ type: "short_essay", promptEs: "PLACEHOLDER only es" }))).toEqual({ success: "Question added." });
     expect(await redirectTarget(deleteExam(draft))).toBe(`/professor/courses/${courseId}`);
+  });
+
+  it("the professor's exam list counts questions and attempts per exam", async () => {
+    actAs(SEED.profA.id);
+    const row = (await listExamsForProfessor(courseId)).find((e) => e.id === examId);
+    expect(row).toMatchObject({ questionCount: 4, attemptCount: 0, status: "published", revealKeysAfterAttempts: false });
   });
 
   it("students never get answer keys or reference answers in any response", async () => {
@@ -183,7 +232,7 @@ describe("exams: authoring, publish gate, attempts, timing, grading", () => {
   const answersFor = (opt: number) => [
     { questionId: qIds[0], selectedOption: opt },
     { questionId: qIds[1], selectedOption: 0 },
-    { questionId: qIds[2], answerText: "PLACEHOLDER fill answer" },
+    { questionId: qIds[2], blanks: ["b1", "b2"] },
     { questionId: qIds[3], answerText: "PLACEHOLDER essay answer" },
   ];
 
@@ -202,6 +251,10 @@ describe("exams: authoring, publish gate, attempts, timing, grading", () => {
     const list = await listExamsForStudent(courseId, SEED.student.id, "en");
     const wire = JSON.stringify({ view, landing, list });
     expect(wire).not.toMatch(/correctOption|correct_option|referenceAnswer|reference_answer|REFKEY/);
+    // mid-attempt: no result, no right/wrong flags, no revealed keys
+    expect(view.result).toBeNull();
+    expect(view.revealedAnswers).toBeNull();
+    expect(wire).not.toMatch(/perQuestion|"state"|"correct"|revealedAnswers":\[|"score":\{/);
 
     // another student can't see this attempt
     expect(await getAttemptForStudent(attempt1, SEED.student2.id)).toBeNull();
@@ -231,6 +284,11 @@ describe("exams: authoring, publish gate, attempts, timing, grading", () => {
     actAs(SEED.student.id);
     expect((await submitExamAttempt(attempt1, { answers: answersFor(1).slice(0, 3) }))?.error).toMatch(/Answer every question/);
     expect((await submitExamAttempt(attempt1, { answers: answersFor(5) }))?.error).toBe("Invalid answer.");
+    // a fill answer must have exactly one entry per blank in the prompt
+    const wrongBlanks = answersFor(1).map((a) => (a.questionId === qIds[2] ? { questionId: qIds[2], blanks: ["only one"] } : a));
+    expect((await submitExamAttempt(attempt1, { answers: wrongBlanks }))?.error).toBe("Invalid answer.");
+    const emptyBlank = answersFor(1).map((a) => (a.questionId === qIds[2] ? { questionId: qIds[2], blanks: ["b1", " "] } : a));
+    expect((await submitExamAttempt(attempt1, { answers: emptyBlank }))?.error).toMatch(/Answer every question/);
     actAs(SEED.student2.id);
     expect(await submitExamAttempt(attempt1, { answers: answersFor(1) })).toEqual({ error: "Attempt not found." });
     actAs(SEED.student.id);
@@ -239,7 +297,15 @@ describe("exams: authoring, publish gate, attempts, timing, grading", () => {
     expect((await saveAttemptAnswers(attempt1, SEED.student.id, [])).ok).toBe(false);
     const v = (await getAttemptForStudent(attempt1, SEED.student.id))!;
     expect(v.status).toBe("submitted");
-    expect(v.grade).toBeNull(); // nothing is auto-graded, not even multiple choice
+    // right after submit: auto-scored right/wrong + provisional score, manual questions named as pending
+    expect(v.result).toMatchObject({
+      status: "pending", legacy: false, autoPoints: 3, autoMax: 3, pendingManualMax: 7, totalMax: 10, percent: null,
+      pending: [{ questionId: qIds[2], number: 3 }, { questionId: qIds[3], number: 4 }],
+    });
+    expect(v.result!.perQuestion.map((p) => p.state)).toEqual(["correct", "correct", "awaiting", "awaiting"]);
+    expect(v.grade).toBeNull();
+    expect(v.revealedAnswers).toBeNull(); // default: right/wrong only, never the correct answer
+    expect(v.answers.find((a) => a.questionId === qIds[2])?.blankAnswers).toEqual(["b1", "b2"]);
   });
 
   let attempt2: string;
@@ -275,41 +341,87 @@ describe("exams: authoring, publish gate, attempts, timing, grading", () => {
 
   let sub1: string;
   let sub2: string;
-  it("grading is manual, ownership-scoped, range-checked, and the highest grade counts", async () => {
+  it("attempt 2 (closed with only a wrong auto answer) is final at once; attempt 1 is pending; the record ignores pending", async () => {
+    actAs(SEED.student.id);
+    const landing = (await getExamLandingForStudent(examId, SEED.student.id, "en"))!;
+    expect(landing.attempts.map((a) => [a.attemptNumber, a.score?.status])).toEqual([[1, "pending"], [2, "final"]]);
+    expect(landing.gradeOfRecord).toBe(0); // only attempt 2 is final (0 of 10)
+    const closed = (await getAttemptForStudent(attempt2, SEED.student.id))!;
+    expect(closed.result).toMatchObject({ status: "final", autoPoints: 0, totalPoints: 0, totalMax: 10, percent: 0 });
+    expect(closed.result!.perQuestion.map((p) => p.state)).toEqual(["unanswered", "incorrect", "unanswered", "unanswered"]);
+  });
+
+  it("manual grading: points per manual question, bounds, ownership, pending becomes final, highest attempt counts", async () => {
     actAs(SEED.profA.id);
     const rows = (await listSubmissionsForExam(examId, A))!;
     [sub1, sub2] = rows.map((r) => r.id);
+    expect(rows[0].score).toMatchObject({ status: "pending", autoPoints: 3, pendingCount: 2 });
+    expect(rows[1].score).toMatchObject({ status: "final", totalPoints: 0 });
 
     const detail = (await getSubmissionForGrading(sub1, A))!;
-    // the professor DOES see the key, beside the student's answer
-    expect(detail.answers[0]).toMatchObject({ correctOption: 1, selectedOption: 1, options: ["n0", "n1", "n2"] });
-    expect(detail.answers[2]).toMatchObject({ referenceAnswer: "REFKEY_FILL_EN", answerText: "PLACEHOLDER fill answer" });
+    // the professor DOES see the key beside the student's answer, plus derived per-question results
+    expect(detail.answers[0]).toMatchObject({ correctOption: 1, selectedOption: 1, options: ["n0", "n1", "n2"], state: "correct", pointsEarned: 2, points: 2 });
+    expect(detail.answers[2]).toMatchObject({ referenceAnswer: "REFKEY_FILL_EN", blanks: ["b1", "b2"], state: "awaiting", points: 3, pointsAwarded: null });
+    expect(detail.score).toMatchObject({ status: "pending", totalPoints: 3 });
     expect(await getSubmissionForGrading(sub1, B)).toBeNull();
 
     actAs(SEED.profB.id);
-    expect(await gradeSubmission(sub1, null, fd({ grade: "50" }))).toEqual({ error: "Submission not found." });
+    expect(await gradeSubmission(sub1, null, fd({ [`points:${qIds[2]}`]: "1", [`points:${qIds[3]}`]: "1" }))).toEqual({ error: "Submission not found." });
     actAs(SEED.student.id);
-    await expect(gradeSubmission(sub1, null, fd({ grade: "50" }))).rejects.toBeInstanceOf(AuthError);
+    await expect(gradeSubmission(sub1, null, fd({ [`points:${qIds[2]}`]: "1" }))).rejects.toBeInstanceOf(AuthError);
 
     actAs(SEED.profA.id);
-    expect((await gradeSubmission(sub1, null, fd({ grade: "101" })))?.error).toBeTruthy();
-    expect((await gradeSubmission(sub1, null, fd({ grade: "" })))?.error).toBeTruthy();
+    const pts = (fill: string, essay: string) => ({ [`points:${qIds[2]}`]: fill, [`points:${qIds[3]}`]: essay });
+    expect((await gradeSubmission(sub1, null, fd(pts("4", "1"))))?.error).toMatch(/more than the question's 3/); // above its weight
+    expect((await gradeSubmission(sub1, null, fd(pts("1", "-1"))))?.error).toBeTruthy();
+    expect((await gradeSubmission(sub1, null, fd(pts("1", "2.3"))))?.error).toBeTruthy(); // not a half step
+    expect((await gradeSubmission(sub1, null, fd({ [`points:${qIds[2]}`]: "1" })))?.error).toMatch(/every question that needs grading/);
+    expect((await gradeSubmission(sub1, null, fd(pts("", "1"))))?.error).toBeTruthy();
+    // nothing was saved by the refused attempts: still pending
+    expect((await getSubmissionForGrading(sub1, A))!.score.status).toBe("pending");
+    // points for a multiple-choice question are ignored: it can't be graded by hand
+    expect(await gradeSubmission(sub1, null, fd({ ...pts("3", "2.5"), [`points:${qIds[0]}`]: "0", feedback: "PLACEHOLDER feedback", [`comment:${qIds[3]}`]: "PLACEHOLDER comment" }))).toEqual({ success: "Grade saved." });
+    const graded = (await getSubmissionForGrading(sub1, A))!;
+    expect(graded.score).toMatchObject({ status: "final", totalPoints: 8.5, totalMax: 10, percent: 85, manualPoints: 5.5 });
+    expect(graded.answers[0]).toMatchObject({ state: "correct", pointsEarned: 2 });
 
-    // student sees nothing until graded
     actAs(SEED.student.id);
-    expect((await getExamLandingForStudent(examId, SEED.student.id, "en"))!.gradeOfRecord).toBeNull();
-
-    actAs(SEED.profA.id);
-    expect(await gradeSubmission(sub1, null, fd({ grade: "70", feedback: "PLACEHOLDER feedback", [`comment:${qIds[3]}`]: "PLACEHOLDER comment" }))).toEqual({ success: "Grade saved." });
-    expect(await gradeSubmission(sub2, null, fd({ grade: "90.5" }))).toEqual({ success: "Grade saved." });
-
-    actAs(SEED.student.id);
-    const landing = (await getExamLandingForStudent(examId, SEED.student.id, "en"))!;
-    expect(landing.gradeOfRecord).toBe(90.5); // highest, not latest and not average
     const mine = (await getAttemptForStudent(attempt1, SEED.student.id))!;
-    expect(mine).toMatchObject({ grade: 70, feedback: "PLACEHOLDER feedback" });
+    expect(mine.result).toMatchObject({ status: "final", totalPoints: 8.5, percent: 85, pending: [] });
+    expect(mine.result!.perQuestion.map((p) => [p.state, p.points])).toEqual([["correct", 2], ["correct", 1], ["graded", 3], ["graded", 2.5]]);
+    expect(mine).toMatchObject({ grade: 85, feedback: "PLACEHOLDER feedback" });
     expect(mine.answers.find((a) => a.questionId === qIds[3])?.feedback).toBe("PLACEHOLDER comment");
     expect(JSON.stringify(mine)).not.toMatch(/correctOption|referenceAnswer|REFKEY/);
+    // highest FINAL attempt counts, not the latest (attempt 2 = 0) and not the average
+    expect((await getExamLandingForStudent(examId, SEED.student.id, "en"))!.gradeOfRecord).toBe(85);
+    expect((await listExamsForStudent(courseId, SEED.student.id, "en"))[0].gradeOfRecord).toBe(85);
+    actAs(SEED.profA.id);
+    expect((await listSubmissionsForExam(examId, A))!.map((r) => r.gradeOfRecord)).toEqual([85, 85]);
+  });
+
+  it("the correct answer reaches a student only when the exam's reveal setting is on and every attempt is used", async () => {
+    const view = async () => (await getAttemptForStudent(attempt1, SEED.student.id))!;
+    actAs(SEED.student.id);
+    expect((await view()).revealedAnswers).toBeNull(); // default off, attempts used up
+    actAs(SEED.profA.id);
+    const on = { ...examFields, revealKeysAfterAttempts: "on" };
+    // reveal on, but a third attempt is still available: nothing revealed
+    expect(await updateExam(examId, null, fd({ ...on, maxAttempts: "3" }))).toEqual({ success: "Saved." });
+    actAs(SEED.student.id);
+    expect((await view()).revealedAnswers).toBeNull();
+    actAs(SEED.profA.id);
+    expect(await updateExam(examId, null, fd(on))).toEqual({ success: "Saved." });
+    expect((await getOwnedExam(examId, A))!.revealKeysAfterAttempts).toBe(true);
+    actAs(SEED.student.id);
+    const revealed = await view();
+    expect(revealed.revealedAnswers).toEqual([{ questionId: qIds[0], correct: 1 }, { questionId: qIds[1], correct: 0 }]);
+    expect(JSON.stringify(revealed)).not.toMatch(/correctOption|correct_option|referenceAnswer|reference_answer|REFKEY/); // guides never
+    // another student can't use it, and off again hides it
+    expect(await getAttemptForStudent(attempt1, SEED.student2.id)).toBeNull();
+    actAs(SEED.profA.id);
+    expect(await updateExam(examId, null, fd(examFields))).toEqual({ success: "Saved." });
+    actAs(SEED.student.id);
+    expect((await view()).revealedAnswers).toBeNull();
   });
 
   it("with attempts: wording, keys, details and limits stay editable", async () => {
@@ -323,9 +435,22 @@ describe("exams: authoring, publish gate, attempts, timing, grading", () => {
     expect(exam.questions[0]).toMatchObject({ correctOption: 2, optionsEn: ["n0", "n1 fixed", "n2"] });
     // the grading page shows the corrected key beside the unchanged stored answer
     const detail = (await getSubmissionForGrading(sub1, A))!;
-    expect(detail.answers[0]).toMatchObject({ correctOption: 2, selectedOption: 1 });
+    expect(detail.answers[0]).toMatchObject({ correctOption: 2, selectedOption: 1, state: "incorrect", pointsEarned: 0 });
+    // correcting the keys re-scores the existing attempt (derived, never stored): 8.5 -> 5.5 -> 5.5 - 1
+    expect(detail.score).toMatchObject({ autoPoints: 0, totalPoints: 5.5, percent: 55 });
+    actAs(SEED.student.id);
+    expect((await getAttemptForStudent(attempt1, SEED.student.id))!.result).toMatchObject({ autoPoints: 0, totalPoints: 5.5 });
+    expect((await getExamLandingForStudent(examId, SEED.student.id, "en"))!.gradeOfRecord).toBe(55);
+    actAs(SEED.profA.id);
+    // the number of blanks can't change once answers exist; wording around them can
+    expect(await updateQuestion(qIds[2], null, fd({ ...FILL, promptEs: "PLACEHOLDER fill es {{blank}}" }))).toMatchObject({ error: expect.stringMatching(/number of blanks/) });
+    expect(await updateQuestion(qIds[2], null, fd({ ...FILL, promptEn: "PLACEHOLDER fixed {{blank}} mid {{blank}}" }))).toEqual({ success: "Saved." });
+    expect(await updateQuestion(qIds[3], null, fd({ ...ESSAY, points: "5" }))).toEqual({ success: "Saved." }); // weight edits are allowed
+    expect((await getSubmissionForGrading(sub1, A))!.score).toMatchObject({ totalMax: 11 });
+    expect(await updateQuestion(qIds[3], null, fd(ESSAY))).toEqual({ success: "Saved." });
     // restore for later tests
     expect(await updateQuestion(qIds[0], null, fd(MC))).toEqual({ success: "Saved." });
+    expect(await updateQuestion(qIds[1], null, fd(TF))).toEqual({ success: "Saved." });
     expect(await updateExam(examId, null, fd(examFields))).toEqual({ success: "Saved." });
   });
 

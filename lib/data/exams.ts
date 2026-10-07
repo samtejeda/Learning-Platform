@@ -63,8 +63,10 @@ export async function listExamsForProfessor(courseId: string): Promise<Professor
       maxAttempts: exams.maxAttempts,
       durationMinutes: exams.durationMinutes,
       revealKeysAfterAttempts: exams.revealKeysAfterAttempts,
-      questionCount: sql<number>`(select count(*)::int from ${examQuestions} q where q.exam_id = ${exams.id})`,
-      attemptCount: sql<number>`(select count(*)::int from ${examSubmissions} s where s.exam_id = ${exams.id})`,
+      // Qualified by hand: in a single-table select drizzle renders ${exams.id} unqualified,
+      // which would bind to the subquery's own id column.
+      questionCount: sql<number>`(select count(*)::int from ${examQuestions} q where q.exam_id = "exams"."id")`,
+      attemptCount: sql<number>`(select count(*)::int from ${examSubmissions} s where s.exam_id = "exams"."id")`,
     })
     .from(exams)
     .where(eq(exams.courseId, courseId))
