@@ -1,3 +1,4 @@
+import { countBlanks } from "./blanks";
 import { asStringArray } from "./language";
 import { MC_MAX_OPTIONS, MC_MIN_OPTIONS } from "./limits";
 
@@ -50,6 +51,10 @@ export function examPublishProblems(exam: PublishExam, questions: PublishQuestio
       }
       if (q.correctOption === null || q.correctOption < 0 || q.correctOption >= Math.min(es.length, en.length)) {
         problems.push({ question: n, message: "Mark which option is the key." });
+      }
+    } else if (q.type === "fill_in_the_blank") {
+      if (countBlanks(q.promptEs) !== countBlanks(q.promptEn)) {
+        problems.push({ question: n, message: "Spanish and English prompts must have the same number of blanks." });
       }
     } else if (q.type === "true_false") {
       if (q.correctOption !== 0 && q.correctOption !== 1) {

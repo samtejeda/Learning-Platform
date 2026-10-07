@@ -1,15 +1,21 @@
 import "server-only";
 
-import { and, asc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { enrollments, examAnswers, examQuestions, examSubmissions, exams } from "@/lib/db/schema";
+import { revealedKeysForStudent, scoreSubmissions } from "@/lib/data/exam-results";
+import { countBlanks } from "@/lib/exams/blanks";
+import { gradeOfRecord, type QuestionScore } from "@/lib/exams/scoring";
 import { asStringArray, type ContentLanguage } from "@/lib/exams/language";
 import { validateAnswers, type RawAnswer } from "@/lib/exams/answers";
 import { attemptDeadline, closeTimeFor, isPastDeadline, isPastGrace } from "@/lib/exams/timing";
 
 // Student-side exam reads and the attempt lifecycle. NOTHING in this file
-// selects examQuestions.correctOption or the reference_answer_* columns:
-// answer keys never reach a student-facing response. Every function takes
+// selects examQuestions.correctOption or the reference_answer_* columns.
+// Scores come from lib/data/exam-results.ts (derived, no keys returned);
+// the key itself reaches a student only through its reveal rule
+// (`revealedAnswers`, off by default). Correctness flags and scores are only
+// ever computed for SUBMITTED attempts: nothing leaks mid-attempt. Every function takes
 // the student's id and joins enrollment (and published) into the query.
 //
 // Lifecycle: startAttempt (≤ maxAttempts, one open attempt at a time, language
@@ -41,7 +47,7 @@ export type StudentExamListItem = {
   durationMinutes: number;
   maxAttempts: number;
   attemptsUsed: number;
-  /** Highest graded attempt; null until something is graded. */
+  /** Highest FINAL attempt percent (0–100); null until one is final. */
   gradeOfRecord: number | null;
   openAttemptId: string | null;
 };
@@ -54,27 +60,55 @@ export async function listExamsForStudent(
 ): Promise<StudentExamListItem[]> {
   await closeExpiredForStudent(studentId);
   const titleCol = language === "es" ? exams.titleEs : exams.titleEn;
-  return db
+  const rows = await db
     .select({
       id: exams.id,
       title: titleCol,
       durationMinutes: exams.durationMinutes,
       maxAttempts: exams.maxAttempts,
       attemptsUsed: sql<number>`(select count(*)::int from ${examSubmissions} s where s.exam_id = ${exams.id} and s.student_id = ${studentId})`,
-      gradeOfRecord: sql<number | null>`(select max(s.grade) from ${examSubmissions} s where s.exam_id = ${exams.id} and s.student_id = ${studentId} and s.graded_at is not null)`,
       openAttemptId: sql<string | null>`(select s.id from ${examSubmissions} s where s.exam_id = ${exams.id} and s.student_id = ${studentId} and s.submitted_at is null limit 1)`,
     })
     .from(exams)
     .innerJoin(enrollments, and(eq(enrollments.courseId, exams.courseId), eq(enrollments.studentId, studentId)))
     .where(and(eq(exams.courseId, courseId), isNotNull(exams.publishedAt)))
     .orderBy(asc(exams.createdAt));
+  const refs = rows.length
+    ? await db
+        .select({ id: examSubmissions.id, examId: examSubmissions.examId, gradedAt: examSubmissions.gradedAt, grade: examSubmissions.grade })
+        .from(examSubmissions)
+        .where(and(inArray(examSubmissions.examId, rows.map((r) => r.id)), eq(examSubmissions.studentId, studentId), isNotNull(examSubmissions.submittedAt)))
+    : [];
+  const scores = await scoreSubmissions(refs);
+  return rows.map((r) => ({
+    ...r,
+    gradeOfRecord: gradeOfRecord(refs.filter((x) => x.examId === r.id).map((x) => scores.get(x.id)!)),
+  }));
 }
+
+export type StudentScoreSummary = {
+  status: "pending" | "final";
+  legacy: boolean;
+  totalPoints: number;
+  totalMax: number;
+  /** Final percent; null while manual grading is pending. */
+  percent: number | null;
+  provisionalPercent: number | null;
+};
 
 export type StudentExamLanding = StudentExamListItem & {
   courseId: string;
   description: string | null;
   questionCount: number;
-  attempts: { id: string; attemptNumber: number; submittedAt: Date | null; grade: number | null }[];
+  attempts: {
+    id: string;
+    attemptNumber: number;
+    submittedAt: Date | null;
+    /** Final percent (0–100); null while in progress or pending manual grading. */
+    grade: number | null;
+    /** Null while in progress. */
+    score: StudentScoreSummary | null;
+  }[];
 };
 
 export async function getExamLandingForStudent(
@@ -98,22 +132,37 @@ export async function getExamLandingForStudent(
     .where(and(eq(exams.id, examId), isNotNull(exams.publishedAt)))
     .limit(1);
   if (!row) return null;
-  const attempts = await db
+  const raw = await db
     .select({
       id: examSubmissions.id,
+      examId: examSubmissions.examId,
       attemptNumber: examSubmissions.attemptNumber,
       submittedAt: examSubmissions.submittedAt,
-      // The grade is invisible to the student until the professor has graded.
-      grade: sql<number | null>`case when ${examSubmissions.gradedAt} is not null then ${examSubmissions.grade} end`,
+      gradedAt: examSubmissions.gradedAt,
+      legacyGrade: examSubmissions.grade,
     })
     .from(examSubmissions)
     .where(and(eq(examSubmissions.examId, examId), eq(examSubmissions.studentId, studentId)))
     .orderBy(asc(examSubmissions.attemptNumber));
-  const grades = attempts.map((a) => a.grade).filter((g): g is number => g !== null);
+  const scores = await scoreSubmissions(
+    raw.filter((a) => a.submittedAt).map((a) => ({ id: a.id, examId: a.examId, gradedAt: a.gradedAt, grade: a.legacyGrade })),
+  );
+  const attempts = raw.map((a) => {
+    const sc = a.submittedAt ? scores.get(a.id)! : null;
+    return {
+      id: a.id,
+      attemptNumber: a.attemptNumber,
+      submittedAt: a.submittedAt,
+      grade: sc?.percent ?? null,
+      score: sc
+        ? { status: sc.status, legacy: sc.legacy, totalPoints: sc.totalPoints, totalMax: sc.totalMax, percent: sc.percent, provisionalPercent: sc.provisionalPercent }
+        : null,
+    };
+  });
   return {
     ...row,
     attemptsUsed: attempts.length,
-    gradeOfRecord: grades.length ? Math.max(...grades) : null,
+    gradeOfRecord: gradeOfRecord([...scores.values()]),
     openAttemptId: attempts.find((a) => a.submittedAt === null)?.id ?? null,
     attempts,
   };
@@ -126,6 +175,31 @@ export type StudentAttemptQuestion = {
   prompt: string | null;
   /** Multiple choice only; text in the attempt's language. */
   options: string[] | null;
+  /** Weight in points. */
+  points: number;
+  /** Fill in the blank: number of blanks in the prompt (the prompt carries the blank token); 0 = legacy single box. */
+  blankCount: number;
+};
+
+export type StudentAttemptResult = {
+  status: "pending" | "final";
+  /** Attempt graded under the old one-grade model: only `percent` is meaningful. */
+  legacy: boolean;
+  autoPoints: number;
+  autoMax: number;
+  /** Awarded so far on manual questions. */
+  manualPoints: number;
+  manualMax: number;
+  pendingManualMax: number;
+  totalPoints: number;
+  totalMax: number;
+  /** Final percent (0–100); null while pending. */
+  percent: number | null;
+  provisionalPercent: number | null;
+  /** Manual questions still awaiting the professor, by question id and 1-based number. */
+  pending: { questionId: string; number: number }[];
+  /** Per-question outcome: correct/incorrect/unanswered (auto) or awaiting/graded (manual). Never includes the key. */
+  perQuestion: QuestionScore[];
 };
 
 export type StudentAttempt = {
@@ -145,11 +219,22 @@ export type StudentAttempt = {
     questionId: string;
     selectedOption: number | null;
     answerText: string | null;
+    /** Fill in the blank with blanks: one entry per blank. */
+    blankAnswers: string[] | null;
     /** Only once graded. */
     feedback: string | null;
   }[];
-  /** Only once graded; null before. */
+  /** Null while in progress; set once submitted (provisional until final). */
+  result: StudentAttemptResult | null;
+  /**
+   * Correct positions of auto-scored questions. NULL unless the exam's
+   * reveal setting is on AND every attempt is used up AND this attempt is
+   * submitted. Never present mid-attempt.
+   */
+  revealedAnswers: { questionId: string; correct: number }[] | null;
+  /** Final percent only; null while in progress or pending. */
   grade: number | null;
+  /** Overall professor feedback, only once graded. */
   feedback: string | null;
 };
 
@@ -170,7 +255,7 @@ export async function getAttemptForStudent(attemptId: string, studentId: string)
         titleEn: exams.titleEn,
         descriptionEs: exams.descriptionEs,
         descriptionEn: exams.descriptionEn,
-        grade: examSubmissions.grade,
+        legacyGrade: examSubmissions.grade,
         feedback: examSubmissions.feedback,
         gradedAt: examSubmissions.gradedAt,
       })
@@ -199,6 +284,7 @@ export async function getAttemptForStudent(attemptId: string, studentId: string)
       promptEn: examQuestions.promptEn,
       optionsEs: examQuestions.optionsEs,
       optionsEn: examQuestions.optionsEn,
+      points: examQuestions.points,
     })
     .from(examQuestions)
     .where(eq(examQuestions.examId, row.examId))
@@ -208,10 +294,34 @@ export async function getAttemptForStudent(attemptId: string, studentId: string)
       questionId: examAnswers.questionId,
       selectedOption: examAnswers.selectedOption,
       answerText: examAnswers.answerText,
+      blankAnswers: examAnswers.blankAnswers,
       feedback: examAnswers.feedback,
     })
     .from(examAnswers)
     .where(eq(examAnswers.submissionId, attemptId));
+
+  let result: StudentAttemptResult | null = null;
+  let revealedAnswers: StudentAttempt["revealedAnswers"] = null;
+  if (row.submittedAt) {
+    const sc = (await scoreSubmissions([{ id: row.id, examId: row.examId, gradedAt: row.gradedAt, grade: row.legacyGrade }])).get(row.id)!;
+    const number = new Map(qs.map((q, i) => [q.id, i + 1]));
+    result = {
+      status: sc.status,
+      legacy: sc.legacy,
+      autoPoints: sc.autoPoints,
+      autoMax: sc.autoMax,
+      manualPoints: sc.manualPoints,
+      manualMax: sc.manualMax,
+      pendingManualMax: sc.pendingManualMax,
+      totalPoints: sc.totalPoints,
+      totalMax: sc.totalMax,
+      percent: sc.percent,
+      provisionalPercent: sc.provisionalPercent,
+      pending: sc.pendingQuestionIds.map((id) => ({ questionId: id, number: number.get(id)! })),
+      perQuestion: sc.perQuestion,
+    };
+    revealedAnswers = await revealedKeysForStudent(row.examId, studentId);
+  }
 
   return {
     id: row.id,
@@ -231,9 +341,13 @@ export async function getAttemptForStudent(attemptId: string, studentId: string)
       order: q.order,
       prompt: text(lang, q.promptEs, q.promptEn) as string | null,
       options: q.type === "multiple_choice" ? asStringArray(text(lang, q.optionsEs, q.optionsEn)) : null,
+      points: q.points,
+      blankCount: q.type === "fill_in_the_blank" ? countBlanks(text(lang, q.promptEs, q.promptEn) as string | null) : 0,
     })),
-    answers: ans.map((a) => ({ ...a, feedback: graded ? a.feedback : null })),
-    grade: graded ? row.grade : null,
+    answers: ans.map((a) => ({ ...a, blankAnswers: asStringArray(a.blankAnswers).length ? asStringArray(a.blankAnswers) : null, feedback: graded ? a.feedback : null })),
+    result,
+    revealedAnswers,
+    grade: result?.percent ?? null,
     feedback: graded ? row.feedback : null,
   };
 }
@@ -322,6 +436,8 @@ async function loadQuestionsTx(tx: Tx, examId: string) {
       type: examQuestions.type,
       optionsEs: examQuestions.optionsEs,
       optionsEn: examQuestions.optionsEn,
+      promptEs: examQuestions.promptEs,
+      promptEn: examQuestions.promptEn,
     })
     .from(examQuestions)
     .where(eq(examQuestions.examId, examId));
@@ -330,7 +446,7 @@ async function loadQuestionsTx(tx: Tx, examId: string) {
 async function replaceAnswers(
   tx: Tx,
   attemptId: string,
-  answers: { questionId: string; selectedOption: number | null; answerText: string | null }[],
+  answers: { questionId: string; selectedOption: number | null; answerText: string | null; blankAnswers: string[] | null }[],
 ) {
   await tx.delete(examAnswers).where(eq(examAnswers.submissionId, attemptId));
   if (answers.length > 0) {

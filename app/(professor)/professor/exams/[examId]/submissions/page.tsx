@@ -22,14 +22,14 @@ export default async function ExamSubmissionsPage({ params }: { params: Promise<
   if (!exam) notFound();
   const rows = (await listSubmissionsForExam(exam.id, user)) ?? [];
 
-  const needGrading = rows.filter((r) => r.submittedAt && !r.gradedAt).length;
+  const needGrading = rows.filter((r) => r.score?.status === "pending").length;
 
   return (
     <div className="space-y-6 sm:space-y-8">
       <PageHeader
         back={<BackLink href={`/professor/exams/${exam.id}`}>Back to exam</BackLink>}
         title="Submissions"
-        lead="Each attempt is graded separately. A student's grade of record is their highest graded attempt."
+        lead="Each attempt is graded separately. Multiple choice and true/false score themselves; you award points for the rest. A student's grade of record is their highest final attempt."
       />
       <Card>
         <div className="mb-2 flex items-center justify-between gap-3">
@@ -49,7 +49,7 @@ export default async function ExamSubmissionsPage({ params }: { params: Promise<
                   <span>Attempt {r.attemptNumber}</span>
                   <span aria-hidden>·</span>
                   <span>{r.language === "es" ? "Español" : "English"}</span>
-                  {r.gradedAt && r.gradeOfRecord !== null && (
+                  {r.gradeOfRecord !== null && (
                     <>
                       <span aria-hidden>·</span>
                       <span>Grade of record: {r.gradeOfRecord}</span>
@@ -59,8 +59,10 @@ export default async function ExamSubmissionsPage({ params }: { params: Promise<
               );
               const badge = !r.submittedAt ? (
                 <Badge tone="neutral">In progress</Badge>
-              ) : r.gradedAt ? (
-                <Badge tone="success">Graded: {r.grade}</Badge>
+              ) : r.score?.status === "final" ? (
+                <Badge tone="success">
+                  {r.score.legacy ? `Graded: ${r.grade}` : `${r.score.totalPoints} of ${r.score.totalMax} points`}
+                </Badge>
               ) : (
                 <Badge tone="warning">Needs grading</Badge>
               );

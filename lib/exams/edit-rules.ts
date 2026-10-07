@@ -1,3 +1,4 @@
+import { countBlanks } from "./blanks";
 import { asStringArray } from "./language";
 
 // Pure rules for editing an exam once students have started it. Answers are
@@ -10,7 +11,8 @@ export type AttemptBlock =
   | "reorder_questions"
   | "add_question"
   | "option_count"
-  | "option_order";
+  | "option_order"
+  | "blank_count";
 
 export const ATTEMPT_BLOCK_MESSAGES: Record<AttemptBlock, string> = {
   delete_question:
@@ -22,6 +24,8 @@ export const ATTEMPT_BLOCK_MESSAGES: Record<AttemptBlock, string> = {
     "Students have started this exam, so the number of options can't change (their saved answers point to option positions). You can still fix option wording and the key.",
   option_order:
     "Students have started this exam, so the order of options can't change (their saved answers point to option positions). You can still fix option wording and the key.",
+  blank_count:
+    "Students have started this exam, so the number of blanks can't change (their saved answers are kept per blank). You can still fix the wording around the blanks.",
 };
 
 /** True when `next` holds exactly the same items as `prev` in a different order. */
@@ -53,4 +57,15 @@ export function optionEditBlock(
     if (isPureReorder(prev, cur)) return "option_order";
   }
   return null;
+}
+
+/** With attempts, a fill-in-the-blank prompt must keep its number of blanks in each language. */
+export function blankEditBlock(
+  stored: { promptEs: string | null; promptEn: string | null },
+  next: { promptEs: string | null; promptEn: string | null },
+): AttemptBlock | null {
+  return countBlanks(stored.promptEs) !== countBlanks(next.promptEs) ||
+    countBlanks(stored.promptEn) !== countBlanks(next.promptEn)
+    ? "blank_count"
+    : null;
 }

@@ -11,3 +11,5 @@ export const ESSAY_ANSWER_MAX_LENGTH = 10_000;
 export const FEEDBACK_MAX_LENGTH = 5000;
 export const ANSWER_FEEDBACK_MAX_LENGTH = 2000;
 export const MAX_QUESTIONS_PER_EXAM = 200;
+export const MIN_POINTS = 1;
+export const MAX_POINTS = 100;

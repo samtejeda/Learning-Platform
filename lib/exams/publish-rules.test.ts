@@ -40,6 +40,12 @@ describe("examPublishProblems", () => {
     expect(examPublishProblems(ok, [mc({ correctOption: null })]).some((x) => /key/.test(x.message))).toBe(true);
     expect(examPublishProblems(ok, [mc({ correctOption: 2 })]).some((x) => /key/.test(x.message))).toBe(true);
   });
+  it("fill in the blank needs the same number of blanks in both languages", () => {
+    const fill = (es: string, en: string) => ({ ...essay(), type: "fill_in_the_blank" as const, promptEs: es, promptEn: en });
+    expect(examPublishProblems(ok, [fill("a {{blank}}", "b {{blank}}")])).toEqual([]);
+    expect(examPublishProblems(ok, [fill("a {{blank}} {{blank}}", "b {{blank}}")])[0].message).toMatch(/same number of blanks/);
+    expect(examPublishProblems(ok, [fill("a", "b")])).toEqual([]); // legacy: no blanks
+  });
   it("requires a true/false key of 0 or 1 but no key for text types", () => {
     expect(examPublishProblems(ok, [{ ...essay(), type: "true_false", correctOption: null }]).length).toBe(1);
     expect(examPublishProblems(ok, [{ ...essay(), type: "true_false", correctOption: 2 }]).length).toBe(1);

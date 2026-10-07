@@ -1,13 +1,17 @@
 import { z } from "zod";
 import { uuidSchema } from "./courses";
+import { MAX_BLANKS } from "@/lib/exams/blanks";
 import { CONTENT_LANGUAGES } from "@/lib/exams/language";
 import {
   ANSWER_FEEDBACK_MAX_LENGTH,
   DESCRIPTION_MAX_LENGTH,
   ESSAY_ANSWER_MAX_LENGTH,
+  FILL_ANSWER_MAX_LENGTH,
   FEEDBACK_MAX_LENGTH,
   MAX_QUESTIONS_PER_EXAM,
+  MAX_POINTS,
   MC_MAX_OPTIONS,
+  MIN_POINTS,
   OPTION_MAX_LENGTH,
   PROMPT_MAX_LENGTH,
   REFERENCE_MAX_LENGTH,
@@ -41,6 +45,11 @@ export const examFormSchema = z.object({
   descriptionEn: optionalText(DESCRIPTION_MAX_LENGTH, "English description"),
   maxAttempts: intField(1, 10, "Attempts"),
   durationMinutes: intField(1, 480, "Time limit"),
+  // Checkbox: present ("on"/"true") = reveal, absent = off.
+  revealKeysAfterAttempts: z
+    .union([z.literal("on"), z.literal("true"), z.literal("false"), z.literal("")])
+    .optional()
+    .transform((v) => v === "on" || v === "true"),
 });
 export type ExamFormInput = z.output<typeof examFormSchema>;
 
@@ -77,6 +86,9 @@ export const questionFieldsSchema = z.object({
   correctOption: optionalKey,
   referenceAnswerEs: optionalText(REFERENCE_MAX_LENGTH, "Spanish reference answer"),
   referenceAnswerEn: optionalText(REFERENCE_MAX_LENGTH, "English reference answer"),
+  // Weight in points. Omitted = unchanged on update, 1 on create.
+  points: z
+    .preprocess((v) => (v === "" ? undefined : v), intField(MIN_POINTS, MAX_POINTS, "Points").optional()),
 });
 export type QuestionFieldsInput = z.output<typeof questionFieldsSchema>;
 
@@ -110,6 +122,8 @@ export const answersSchema = z
             questionId: uuidSchema,
             selectedOption: z.number().int().min(0).max(MC_MAX_OPTIONS - 1).optional(),
             answerText: z.string().max(ESSAY_ANSWER_MAX_LENGTH).optional(),
+            // fill in the blank with blanks in the prompt: one entry per blank
+            blanks: z.array(z.string().max(FILL_ANSWER_MAX_LENGTH)).max(MAX_BLANKS).optional(),
           })
           .strict(),
       )
@@ -119,20 +133,27 @@ export const answersSchema = z
 
 // ─── Grading ──────────────────────────────────────────────────────────────────
 
+/** Half-point steps: 0, 0.5, 1, … */
+const pointsValue = z
+  .string()
+  .trim()
+  .min(1, "Points are required.")
+  .transform((v) => Number(v))
+  .pipe(
+    z
+      .number({ error: "Points must be a number." })
+      .min(0, "Points can't be negative.")
+      .max(MAX_POINTS, `Points can be at most ${MAX_POINTS}.`)
+      .refine((n) => Number.isInteger(n * 2), "Use whole or half points (for example 2 or 2.5)."),
+  );
+
+/** Manual grading: points per manual question (the form sends one
+ * `points:<questionId>` per answered fill/essay question), overall feedback,
+ * and optional per-answer comments. Bounds against each question's weight
+ * are checked in the data layer, which knows the weights. */
 export const gradeSchema = z.object({
-  // A blank field must not coerce to 0, so require a non-empty string first.
-  grade: z
-    .string({ error: "Grade is required." })
-    .trim()
-    .min(1, "Grade is required.")
-    .transform((v) => Number(v))
-    .pipe(
-      z
-        .number({ error: "Grade must be a number." })
-        .min(0, "Grade must be between 0 and 100.")
-        .max(100, "Grade must be between 0 and 100."),
-    ),
   feedback: optionalText(FEEDBACK_MAX_LENGTH, "Feedback"),
+  answerPoints: z.record(uuidSchema, pointsValue).default({}),
   answerFeedback: z
     .record(uuidSchema, z.string().trim().max(ANSWER_FEEDBACK_MAX_LENGTH, "An answer comment is too long."))
     .default({}),
