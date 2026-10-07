@@ -25,7 +25,7 @@ export function StartAttemptForm({
       {state?.error && <Alert tone="error">{state.error}</Alert>}
       {resuming ? (
         <>
-          <p className="text-sm text-muted">You have an attempt in progress. It keeps its original language.</p>
+          <p className="text-sm text-muted">This attempt keeps the language you started it in.</p>
           <input type="hidden" name="language" value={language} />
         </>
       ) : (
@@ -40,7 +40,7 @@ export function StartAttemptForm({
           ]}
         />
       )}
-      <SubmitButton pendingLabel="Starting…" fullWidth={false}>
+      <SubmitButton pendingLabel="Starting…" fullWidth={false} className="min-h-11 w-full sm:w-auto">
         {resuming ? "Resume attempt" : "Start attempt"}
       </SubmitButton>
     </form>
