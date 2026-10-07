@@ -36,7 +36,7 @@ export function StudentExamList({ courseId, exams }: { courseId: string; exams: 
                 </div>
               </div>
               {e.gradeOfRecord !== null ? (
-                <Badge tone="success">Grade: {e.gradeOfRecord}</Badge>
+                <Badge tone="success">Grade: {e.gradeOfRecord}%</Badge>
               ) : e.openAttemptId ? (
                 <Badge tone="neutral">In progress</Badge>
               ) : (

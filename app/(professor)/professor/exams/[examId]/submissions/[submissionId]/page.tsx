@@ -29,7 +29,7 @@ export default async function GradeSubmissionPage({
         back={<BackLink href={`/professor/exams/${submission.examId}/submissions`}>Submissions</BackLink>}
         title={submission.studentName || submission.studentEmail || "Student"}
         eyebrow={`Attempt ${submission.attemptNumber} · answered in ${submission.language === "es" ? "Español" : "English"}`}
-        lead="Nothing is scored automatically. The key is shown beside each answer for your reference only."
+        lead="Multiple choice and true/false are already scored. Give points to the other answers; the correct answers are shown to you only."
       />
       <ExamGradeForm action={gradeSubmission.bind(null, submission.id)} submission={submission} />
     </div>

@@ -25,9 +25,9 @@ export default async function ProfessorExamPage({ params }: { params: Promise<{ 
       <PageHeader
         back={<BackLink href={`/professor/courses/${exam.courseId}`}>Back to course</BackLink>}
         title={exam.titleEn || exam.titleEs || "Untitled exam"}
-        lead="Both languages are required before you can publish. Exams are graded by you; nothing is scored automatically."
+        lead="Multiple choice and true/false questions score themselves. You grade fill in the blank and essay questions. Both languages are needed to publish."
         actions={
-          exam.status === "published" ? (
+          exam.status === "published" || exam.attemptCount > 0 ? (
             <Link href={`/professor/exams/${exam.id}/submissions`} className={buttonClassName("secondary")}>
               Submissions
             </Link>
