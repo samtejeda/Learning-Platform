@@ -17,7 +17,15 @@ export function StartAttemptForm({
   defaultLanguage: ContentLanguage;
   resuming: boolean;
 }) {
-  const [state, formAction] = useActionState<ActionState, FormData>(action, null);
+  // When this page was server-rendered (hard load or refresh), the browser's
+  // FormData also carries React's hidden `$ACTION_*` bookkeeping fields, which
+  // the action's strict schema rejects ("Unrecognized keys"). Send only the
+  // real field so Start works after a refresh as well as after a soft navigation.
+  const [state, formAction] = useActionState<ActionState, FormData>((prev, formData) => {
+    const clean = new FormData();
+    for (const [key, value] of formData.entries()) if (!key.startsWith("$ACTION")) clean.append(key, value);
+    return action(prev, clean);
+  }, null);
   const [language, setLanguage] = useState<ContentLanguage>(defaultLanguage);
 
   return (

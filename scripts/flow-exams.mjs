@@ -122,6 +122,9 @@ await student.click("a:has-text('PLACEHOLDER')");
 await student.waitForURL(/\/exams\/[0-9a-f-]{36}$/, { timeout: 30000 });
 await student.waitForLoadState("networkidle");
 await shot(student, "student-exam-landing");
+// Hard-reload first: a server-rendered form also posts React's hidden $ACTION_* fields.
+await student.reload({ waitUntil: "networkidle" });
+await student.waitForTimeout(1500);
 await student.click("label:has-text('English')");
 await student.click("button:has-text('Start attempt')");
 await student.waitForURL(/\/attempt\/[0-9a-f-]{36}$/, { timeout: 30000 });
@@ -196,6 +199,7 @@ check((await student.locator("text=Key:").count()) === 0 && (await student.locat
 await shot(student, "student-graded");
 
 await leakScan("student review page", student.url());
+console.log(`\nPaths for tab-order / screenshots:\n  /courses/${courseId}\n  /courses/${courseId}/exams/${examId}\n  ${new URL(student.url()).pathname}\n  /professor/courses/${courseId}\n  ${new URL(examUrl).pathname}/submissions\n  ${new URL(prof.url()).pathname}`);
 
 // ── Wide layout: same pages at 1280px, no overflow ─────────────────────────
 const wideStudent = await (await ctx(".auth/student.json", true)).newPage();
