@@ -109,7 +109,7 @@ await details.nth(3).locator("[role=status]:has-text('Saved')").waitFor({ timeou
 await prof.click("button:has-text('Publish')");
 await prof.waitForSelector("text=Published. Enrolled students", { timeout: 20000 });
 await prof.reload({ waitUntil: "networkidle" });
-check((await prof.locator("button:has-text('Add question')").count()) === 0, "published exam is read-only (no add-question form)");
+check((await prof.locator("button:has-text('Add question')").count()) === 1, "published exam with no attempts stays editable (add-question form present)");
 await shot(prof, "prof-exam-published");
 
 // ── Student: take the exam in English ──────────────────────────────────────

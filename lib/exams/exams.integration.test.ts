@@ -18,6 +18,7 @@ import {
   createExam,
   createQuestion,
   deleteExam,
+  deleteQuestion,
   gradeSubmission,
   publishExam,
   reorderQuestions,
@@ -122,12 +123,46 @@ describe("exams: authoring, publish gate, attempts, timing, grading", () => {
     expect((await getOwnedExam(examId, A))?.status).toBe("published");
   });
 
-  it("structure is locked while published", async () => {
+  it("a published exam with no attempts stays editable (incl. add, reorder, delete, option changes)", async () => {
+    actAs(SEED.profB.id);
+    expect(await updateExam(examId, null, fd(examFields))).toEqual({ error: "Exam not found." });
+    expect(await updateQuestion(qIds[0], null, fd(MC))).toEqual({ error: "Question not found." });
+    expect(await deleteQuestion(qIds[0])).toEqual({ error: "Question not found." });
+    expect(await reorderQuestions(examId, { orderedIds: [...qIds] })).toEqual({ error: "Exam not found." });
+
     actAs(SEED.profA.id);
-    expect((await updateExam(examId, null, fd(examFields)))?.error).toMatch(/can't be changed/);
-    expect((await createQuestion(examId, null, fd(MC)))?.error).toMatch(/can't be changed/);
-    expect((await updateQuestion(qIds[0], null, fd(MC)))?.error).toMatch(/can't be changed/);
-    expect((await reorderQuestions(examId, { orderedIds: [...qIds].reverse() }))?.error).toMatch(/can't be changed/);
+    expect(await updateExam(examId, null, fd({ ...examFields, titleEn: "PLACEHOLDER title" }))).toEqual({ success: "Saved." });
+    // add a 5th question, change option count, reorder, then delete it again
+    expect(await createQuestion(examId, null, fd(ESSAY))).toEqual({ success: "Question added." });
+    const extra = (await getOwnedExam(examId, A))!.questions[4].id;
+    expect(await updateQuestion(qIds[0], null, fd({ ...MC, optionsEs: "e0\ne1", optionsEn: "n0\nn1", correctOption: "0" }))).toEqual({ success: "Saved." });
+    expect(await updateQuestion(qIds[0], null, fd(MC))).toEqual({ success: "Saved." });
+    expect(await reorderQuestions(examId, { orderedIds: [extra, ...qIds] })).toEqual({ success: "Order saved." });
+    expect(await reorderQuestions(examId, { orderedIds: [...qIds, extra] })).toEqual({ success: "Order saved." });
+    expect(await deleteQuestion(extra)).toEqual({ success: "Question deleted." });
+  });
+
+  it("the publish gate re-runs on every edit to a published exam: rejected, rolled back, still published", async () => {
+    actAs(SEED.profA.id);
+    const before = (await getOwnedExam(examId, A))!;
+    const bad = await updateQuestion(qIds[3], null, fd({ promptEs: "PLACEHOLDER essay es", promptEn: "" }));
+    expect(bad?.error).toMatch(/Nothing was saved.*Question 4: Add the English prompt/);
+    expect((await updateExam(examId, null, fd({ ...examFields, titleEs: "" })))?.error).toMatch(/Add a Spanish title/);
+    // MC options that differ in count between languages, or a key out of range
+    expect((await updateQuestion(qIds[0], null, fd({ ...MC, optionsEn: "n0\nn1" })))?.error).toMatch(/same number of options/);
+    expect((await updateQuestion(qIds[0], null, fd({ ...MC, correctOption: "" })))?.error).toMatch(/Mark which option/);
+    const after = (await getOwnedExam(examId, A))!;
+    expect(after.status).toBe("published");
+    expect(after.questions).toEqual(before.questions);
+    expect(after.titleEs).toBe(before.titleEs);
+    // adding an incomplete question to a published exam is rejected too
+    expect((await createQuestion(examId, null, fd({ type: "short_essay", promptEs: "PLACEHOLDER only es" })))?.error).toMatch(/Nothing was saved/);
+    expect((await getOwnedExam(examId, A))!.questions).toHaveLength(4);
+    // a draft may still be incomplete (gate applies to published only)
+    const to = await redirectTarget(createExam(courseId, null, fd(examFields)));
+    const draft = to.split("/").pop()!;
+    expect(await createQuestion(draft, null, fd({ type: "short_essay", promptEs: "PLACEHOLDER only es" }))).toEqual({ success: "Question added." });
+    expect(await redirectTarget(deleteExam(draft))).toBe(`/professor/courses/${courseId}`);
   });
 
   it("students never get answer keys or reference answers in any response", async () => {
@@ -277,11 +312,65 @@ describe("exams: authoring, publish gate, attempts, timing, grading", () => {
     expect(JSON.stringify(mine)).not.toMatch(/correctOption|referenceAnswer|REFKEY/);
   });
 
-  it("once students have attempts the exam can't be unpublished or deleted", async () => {
+  it("with attempts: wording, keys, details and limits stay editable", async () => {
     actAs(SEED.profA.id);
-    expect((await unpublishExam(examId))?.error).toMatch(/can't be unpublished/);
+    expect(await updateQuestion(qIds[0], null, fd({ ...MC, promptEn: "PLACEHOLDER mc en fixed", optionsEn: "n0\nn1 fixed\nn2", correctOption: "2" }))).toEqual({ success: "Saved." });
+    expect(await updateQuestion(qIds[1], null, fd({ ...TF, correctOption: "1" }))).toEqual({ success: "Saved." });
+    expect(await updateQuestion(qIds[2], null, fd({ ...FILL, referenceAnswerEn: "REFKEY_FILL_EN2" }))).toEqual({ success: "Saved." });
+    expect(await updateExam(examId, null, fd({ ...examFields, titleEn: "PLACEHOLDER title", maxAttempts: "3", durationMinutes: "30" }))).toEqual({ success: "Saved." });
+    const exam = (await getOwnedExam(examId, A))!;
+    expect(exam).toMatchObject({ maxAttempts: 3, durationMinutes: 30, attemptCount: 2 });
+    expect(exam.questions[0]).toMatchObject({ correctOption: 2, optionsEn: ["n0", "n1 fixed", "n2"] });
+    // the grading page shows the corrected key beside the unchanged stored answer
+    const detail = (await getSubmissionForGrading(sub1, A))!;
+    expect(detail.answers[0]).toMatchObject({ correctOption: 2, selectedOption: 1 });
+    // restore for later tests
+    expect(await updateQuestion(qIds[0], null, fd(MC))).toEqual({ success: "Saved." });
+    expect(await updateExam(examId, null, fd(examFields))).toEqual({ success: "Saved." });
+  });
+
+  it("with attempts: position-changing edits are blocked with a clear message", async () => {
+    actAs(SEED.profA.id);
+    const before = (await getOwnedExam(examId, A))!;
+    expect(await deleteQuestion(qIds[3])).toMatchObject({ error: expect.stringMatching(/questions can't be deleted/) });
+    expect(await reorderQuestions(examId, { orderedIds: [...qIds].reverse() })).toMatchObject({ error: expect.stringMatching(/can't be reordered/) });
+    expect(await createQuestion(examId, null, fd(ESSAY))).toMatchObject({ error: expect.stringMatching(/questions can't be added/) });
+    // add / remove an option (either language)
+    expect(await updateQuestion(qIds[0], null, fd({ ...MC, optionsEs: "e0\ne1\ne2\ne3", optionsEn: "n0\nn1\nn2\nn3" }))).toMatchObject({ error: expect.stringMatching(/number of options/) });
+    expect(await updateQuestion(qIds[0], null, fd({ ...MC, optionsEn: "n0\nn1" }))).toMatchObject({ error: expect.stringMatching(/number of options/) });
+    // reorder options
+    expect(await updateQuestion(qIds[0], null, fd({ ...MC, optionsEs: "e1\ne0\ne2", optionsEn: "n1\nn0\nn2" }))).toMatchObject({ error: expect.stringMatching(/order of options/) });
+    const after = (await getOwnedExam(examId, A))!;
+    expect(after.questions).toEqual(before.questions);
+    // question type is immutable: a "type" field on an update is ignored
+    expect(await updateQuestion(qIds[3], null, fd({ ...TF, type: "true_false" }))).toEqual({ success: "Saved." });
+    expect((await getOwnedExam(examId, A))!.questions[3].type).toBe("short_essay");
+    expect(await updateQuestion(qIds[3], null, fd(ESSAY))).toEqual({ success: "Saved." });
+    // cross-professor still not found
+    actAs(SEED.profB.id);
+    expect(await deleteQuestion(qIds[3])).toEqual({ error: "Question not found." });
+  });
+
+  it("with attempts: the gate still applies, delete stays blocked, unpublish is allowed and reversible", async () => {
+    actAs(SEED.profA.id);
+    expect((await updateQuestion(qIds[3], null, fd({ ...ESSAY, promptEn: "" })))?.error).toMatch(/Nothing was saved/);
     expect((await deleteExam(examId))?.error).toMatch(/can't be deleted/);
-    expect((await getOwnedExam(examId, A))?.status).toBe("published");
+    actAs(SEED.profB.id);
+    expect(await unpublishExam(examId)).toEqual({ error: "Exam not found." });
+    actAs(SEED.profA.id);
+    expect(await unpublishExam(examId)).toEqual({ success: "Unpublished." });
+    expect((await getOwnedExam(examId, A))!.attemptCount).toBe(2);
+    // attempts rule keys on attempts, not on draft state
+    expect(await deleteQuestion(qIds[3])).toMatchObject({ error: expect.stringMatching(/can't be deleted/) });
+    expect(await publishExam(examId)).toMatchObject({ success: expect.any(String) });
+  });
+
+  it("student payloads still carry no keys after edits (JSON scan)", async () => {
+    actAs(SEED.student.id);
+    const view = (await getAttemptForStudent(attempt1, SEED.student.id))!;
+    const landing = await getExamLandingForStudent(examId, SEED.student.id, "en");
+    const list = await listExamsForStudent(courseId, SEED.student.id, "en");
+    expect(JSON.stringify({ view, landing, list })).not.toMatch(/correctOption|correct_option|referenceAnswer|reference_answer|REFKEY/);
   });
 
   it("an unused published exam can be unpublished, edited, and deleted", async () => {

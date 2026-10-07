@@ -23,9 +23,9 @@ import { QUESTION_TYPE_LABELS, QuestionForm } from "./question-form";
 
 /**
  * Plain professor builder: exam details, question list (edit / move / delete),
- * add-a-question, and publish. While published the structure is read-only
- * (the server enforces this too; unpublish is possible only before any
- * student has started).
+ * add-a-question, and publish. Everything is editable at any time; the
+ * server refuses (with a message) the edits that would break stored answers
+ * once students have started, and re-checks completeness on published exams.
  */
 export function ExamBuilder({ exam }: { exam: OwnedExam }) {
   const router = useRouter();
@@ -54,7 +54,9 @@ export function ExamBuilder({ exam }: { exam: OwnedExam }) {
         </div>
         {exam.attemptCount > 0 && (
           <p className="mb-3 text-sm text-muted">
-            {exam.attemptCount} attempt{exam.attemptCount === 1 ? "" : "s"} started — the exam is frozen.
+            {exam.attemptCount} attempt{exam.attemptCount === 1 ? "" : "s"} started. You can still fix wording, keys and
+            option text (students in progress see changes immediately). Adding, deleting or reordering questions, and
+            changing the number or order of options, is blocked.
           </p>
         )}
         <div className="flex flex-wrap gap-3">
@@ -62,9 +64,14 @@ export function ExamBuilder({ exam }: { exam: OwnedExam }) {
             <ActionButton variant="primary" action={() => publishExam(exam.id)}>
               Publish
             </ActionButton>
-          ) : exam.attemptCount === 0 ? (
-            <ActionButton action={() => unpublishExam(exam.id)}>Unpublish to edit</ActionButton>
-          ) : null}
+          ) : (
+            <ActionButton
+              confirmMessage={exam.attemptCount > 0 ? "Unpublish? Students will stop seeing this exam and their results until you publish it again." : undefined}
+              action={() => unpublishExam(exam.id)}
+            >
+              Unpublish
+            </ActionButton>
+          )}
           {exam.attemptCount === 0 && (
             <ActionButton variant="danger" confirmMessage="Delete this exam?" action={() => deleteExam(exam.id)}>
               Delete exam
@@ -80,7 +87,6 @@ export function ExamBuilder({ exam }: { exam: OwnedExam }) {
             action={updateExam.bind(null, exam.id)}
             initial={exam}
             submitLabel="Save details"
-            disabled={!draft}
           />
         </div>
       </Card>
@@ -96,32 +102,30 @@ export function ExamBuilder({ exam }: { exam: OwnedExam }) {
                 <span className="text-sm font-medium tabular-nums">{i + 1}.</span>
                 <Badge tone="outline">{QUESTION_TYPE_LABELS[q.type]}</Badge>
                 <span className="min-w-0 flex-1 truncate text-sm text-muted">{q.promptEn || q.promptEs || "(no prompt yet)"}</span>
-                {draft && (
+                {exam.attemptCount === 0 && (
                   <>
                     <Button type="button" size="sm" variant="ghost" disabled={pending || i === 0} onClick={() => move(i, -1)} aria-label="Move up">↑</Button>
                     <Button type="button" size="sm" variant="ghost" disabled={pending || i === exam.questions.length - 1} onClick={() => move(i, 1)} aria-label="Move down">↓</Button>
                   </>
                 )}
               </div>
-              {draft ? (
-                <details className="mt-3">
-                  <summary className="cursor-pointer text-sm font-medium text-ink">Edit</summary>
-                  <div className="mt-3 space-y-3">
-                    <QuestionForm action={updateQuestion.bind(null, q.id)} question={q} submitLabel="Save question" />
+              <details className="mt-3">
+                <summary className="cursor-pointer text-sm font-medium text-ink">Edit</summary>
+                <div className="mt-3 space-y-3">
+                  <QuestionForm action={updateQuestion.bind(null, q.id)} question={q} submitLabel="Save question" />
+                  {exam.attemptCount === 0 && (
                     <ActionButton variant="danger" confirmMessage="Delete this question?" action={() => deleteQuestion(q.id)}>
                       Delete question
                     </ActionButton>
-                  </div>
-                </details>
-              ) : (
-                <QuestionReadOnly q={q} />
-              )}
+                  )}
+                </div>
+              </details>
             </li>
           ))}
         </ol>
       </Card>
 
-      {draft && (
+      {exam.attemptCount === 0 && (
         <Card variant="outlined">
           <CardTitle>Add a question</CardTitle>
           <div className="mt-3">
@@ -129,23 +133,6 @@ export function ExamBuilder({ exam }: { exam: OwnedExam }) {
           </div>
         </Card>
       )}
-    </div>
-  );
-}
-
-function QuestionReadOnly({ q }: { q: OwnedExam["questions"][number] }) {
-  return (
-    <div className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
-      <div>
-        <p className="font-medium">Español</p>
-        <p>{q.promptEs}</p>
-        {q.optionsEs && <ol className="list-decimal pl-5">{q.optionsEs.map((o, i) => <li key={i}>{o}{q.correctOption === i ? " ✓" : ""}</li>)}</ol>}
-      </div>
-      <div>
-        <p className="font-medium">English</p>
-        <p>{q.promptEn}</p>
-        {q.optionsEn && <ol className="list-decimal pl-5">{q.optionsEn.map((o, i) => <li key={i}>{o}{q.correctOption === i ? " ✓" : ""}</li>)}</ol>}
-      </div>
     </div>
   );
 }
