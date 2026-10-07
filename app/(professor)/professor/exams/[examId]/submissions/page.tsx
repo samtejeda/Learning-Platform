@@ -6,8 +6,9 @@ import { getOwnedExam, listSubmissionsForExam } from "@/lib/data/exams";
 import { PageHeader } from "@/components/ui/page-header";
 import { BackLink } from "@/components/ui/back-link";
 import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
-import { DataList } from "@/components/ui/data-list";
+import { Card, CardTitle } from "@/components/ui/card";
+import { DataList, DataRow, DataRowMain } from "@/components/ui/data-list";
+import { RowChevron } from "@/components/ui/row-chevron";
 
 const paramsSchema = z.object({ examId: z.uuid() });
 
@@ -21,6 +22,8 @@ export default async function ExamSubmissionsPage({ params }: { params: Promise<
   if (!exam) notFound();
   const rows = (await listSubmissionsForExam(exam.id, user)) ?? [];
 
+  const needGrading = rows.filter((r) => r.submittedAt && !r.gradedAt).length;
+
   return (
     <div className="space-y-6 sm:space-y-8">
       <PageHeader
@@ -29,29 +32,58 @@ export default async function ExamSubmissionsPage({ params }: { params: Promise<
         lead="Each attempt is graded separately. A student's grade of record is their highest graded attempt."
       />
       <Card>
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <CardTitle>Attempts</CardTitle>
+          <span className="text-sm tabular-nums text-muted">
+            {rows.length === 0 ? "None yet" : needGrading > 0 ? `${needGrading} to grade` : "All graded"}
+          </span>
+        </div>
         {rows.length === 0 ? (
           <p className="text-sm text-muted">No one has started this exam yet.</p>
         ) : (
           <DataList>
-            {rows.map((r) => (
-              <li key={r.id} className="py-3">
-                {r.submittedAt ? (
-                  <Link href={`/professor/exams/${exam.id}/submissions/${r.id}`} className="flex flex-wrap items-center gap-2 hover:underline">
-                    <span className="font-medium">{r.studentName || r.studentEmail || "Student"}</span>
-                    <Badge tone="outline">Attempt {r.attemptNumber}</Badge>
-                    <Badge tone="outline">{r.language === "es" ? "Español" : "English"}</Badge>
-                    {r.gradedAt ? <Badge tone="success">Graded: {r.grade}</Badge> : <Badge tone="warning">Needs grading</Badge>}
-                    {r.gradedAt && r.gradeOfRecord !== null && <span className="text-xs text-muted">Grade of record: {r.gradeOfRecord}</span>}
-                  </Link>
-                ) : (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium">{r.studentName || r.studentEmail || "Student"}</span>
-                    <Badge tone="outline">Attempt {r.attemptNumber}</Badge>
-                    <Badge tone="neutral">In progress</Badge>
-                  </div>
-                )}
-              </li>
-            ))}
+            {rows.map((r) => {
+              const name = r.studentName || r.studentEmail || "Student";
+              const meta = (
+                <>
+                  <span>Attempt {r.attemptNumber}</span>
+                  <span aria-hidden>·</span>
+                  <span>{r.language === "es" ? "Español" : "English"}</span>
+                  {r.gradedAt && r.gradeOfRecord !== null && (
+                    <>
+                      <span aria-hidden>·</span>
+                      <span>Grade of record: {r.gradeOfRecord}</span>
+                    </>
+                  )}
+                </>
+              );
+              const badge = !r.submittedAt ? (
+                <Badge tone="neutral">In progress</Badge>
+              ) : r.gradedAt ? (
+                <Badge tone="success">Graded: {r.grade}</Badge>
+              ) : (
+                <Badge tone="warning">Needs grading</Badge>
+              );
+              return (
+                <li key={r.id}>
+                  {r.submittedAt ? (
+                    <Link
+                      href={`/professor/exams/${exam.id}/submissions/${r.id}`}
+                      className="-mx-2 flex min-h-14 items-center gap-3 rounded-md px-2 py-3 hover:bg-surface-cream-strong/60 focus-visible:focus-ring"
+                    >
+                      <DataRowMain title={name} meta={meta} />
+                      {badge}
+                      <RowChevron />
+                    </Link>
+                  ) : (
+                    <DataRow>
+                      <DataRowMain title={name} meta={meta} />
+                      {badge}
+                    </DataRow>
+                  )}
+                </li>
+              );
+            })}
           </DataList>
         )}
       </Card>
