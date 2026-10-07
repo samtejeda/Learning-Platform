@@ -257,9 +257,12 @@ export const lectureProgress = pgTable(
 // Bilingual from day one (Sam, 2026-09-24): every professor-authored string
 // exists as an `_es` and an `_en` column. Drafts may be incomplete; publish
 // requires both (lib/exams/publish-rules.ts, re-checked inside the publish
-// transaction). Exams are NEVER auto-graded: the multiple-choice/true-false
-// key below is shown only to the professor next to the student's answer.
-// Structure is frozen once any attempt exists (see lib/data/exams.ts).
+// transaction). Multiple choice and true/false are AUTO-SCORED, derived at
+// read time from the stored position vs the current key (lib/exams/scoring.ts,
+// nothing score-related is stored); fill in the blank and essay are graded
+// by hand, points per question. Keys reach a student only under the per-exam
+// reveal rule. Structure edits are restricted once attempts exist
+// (see lib/exams/edit-rules.ts).
 
 export const exams = pgTable(
   "exams",
@@ -277,6 +280,9 @@ export const exams = pgTable(
     maxAttempts: integer("max_attempts").notNull().default(2),
     // Server-enforced time limit per attempt, counted from startedAt.
     durationMinutes: integer("duration_minutes").notNull().default(20),
+    // Show a student the correct option of auto-scored questions on their
+    // submitted reviews once all their attempts are used up. Default off.
+    revealKeysAfterAttempts: boolean("reveal_keys_after_attempts").notNull().default(false),
     // null = draft; set by professor to publish
     publishedAt: timestamp("published_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -318,6 +324,8 @@ export const examQuestions = pgTable(
     // never selected by any student-facing query.
     referenceAnswerEs: text("reference_answer_es"),
     referenceAnswerEn: text("reference_answer_en"),
+    // Weight of the question in the attempt's points (default 1).
+    points: integer("points").notNull().default(1),
     order: integer("order").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -326,6 +334,7 @@ export const examQuestions = pgTable(
   (t) => [
     index("exam_questions_exam_order_idx").on(t.examId, t.order),
     check("exam_questions_correct_option_nonneg", sql`${t.correctOption} is null or ${t.correctOption} >= 0`),
+    check("exam_questions_points_range", sql`${t.points} between 1 and 100`),
   ]
 ).enableRLS();
 
@@ -353,7 +362,9 @@ export const examSubmissions = pgTable(
       .notNull()
       .defaultNow(),
     submittedAt: timestamp("submitted_at", { withTimezone: true }),
-    // Professor-assigned grade (0–100) and feedback after manual grading
+    // LEGACY overall grade (0–100) from the earlier one-grade model; read for
+    // old attempts, never written by the points model. feedback and
+    // gradedBy/gradedAt are still used.
     grade: real("grade"),
     feedback: text("feedback"),
     gradedAt: timestamp("graded_at", { withTimezone: true }),
@@ -388,6 +399,13 @@ export const examAnswers = pgTable(
       .references(() => examQuestions.id, { onDelete: "cascade" }),
     answerText: text("answer_text"),
     selectedOption: integer("selected_option"),
+    // fill_in_the_blank with blanks in the prompt: string[] indexed by blank
+    // (lib/exams/blanks.ts). Zero-blank (legacy) fill questions use answerText.
+    blankAnswers: jsonb("blank_answers"),
+    // Manual questions only: points the professor awarded (0..the question's
+    // weight, half-point steps). Null until graded. Auto-scored questions
+    // never store points.
+    pointsAwarded: real("points_awarded"),
     // Optional professor comment on this one answer.
     feedback: text("feedback"),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -402,8 +420,9 @@ export const examAnswers = pgTable(
     index("exam_answers_question_idx").on(t.questionId),
     check(
       "exam_answers_one_value",
-      sql`(${t.answerText} is not null)::int + (${t.selectedOption} is not null)::int = 1`
+      sql`(${t.answerText} is not null)::int + (${t.selectedOption} is not null)::int + (${t.blankAnswers} is not null)::int = 1`
     ),
+    check("exam_answers_points_nonneg", sql`${t.pointsAwarded} is null or ${t.pointsAwarded} >= 0`),
     check("exam_answers_option_nonneg", sql`${t.selectedOption} is null or ${t.selectedOption} >= 0`),
   ]
 ).enableRLS();
