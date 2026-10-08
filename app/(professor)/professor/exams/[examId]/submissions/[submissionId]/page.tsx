@@ -24,9 +24,16 @@ export default async function GradeSubmissionPage({
   if (!submission || submission.examId !== parsed.data.examId) notFound();
 
   return (
-    <div className="max-w-3xl space-y-6 sm:space-y-8">
+    <div className="mx-auto max-w-3xl space-y-6 sm:space-y-8">
       <PageHeader
         back={<BackLink href={`/professor/exams/${submission.examId}/submissions`}>Submissions</BackLink>}
+        crumbs={[
+          { label: "Teaching", href: "/professor" },
+          { label: "Course", href: `/professor/courses/${submission.courseId}` },
+          { label: submission.examTitle || "Exam", href: `/professor/exams/${submission.examId}` },
+          { label: "Submissions", href: `/professor/exams/${submission.examId}/submissions` },
+          { label: submission.studentName || submission.studentEmail || "Student" },
+        ]}
         title={submission.studentName || submission.studentEmail || "Student"}
         eyebrow={`Attempt ${submission.attemptNumber} · answered in ${submission.language === "es" ? "Español" : "English"}`}
         lead="Multiple choice and true/false are already scored. Give points to the other answers; the correct answers are shown to you only."

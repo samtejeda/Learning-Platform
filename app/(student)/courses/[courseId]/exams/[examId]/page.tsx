@@ -37,9 +37,15 @@ export default async function StudentExamPage({
   const canStart = exam.openAttemptId !== null || attemptsLeft > 0;
 
   return (
-    <div className="max-w-2xl space-y-6 sm:space-y-8">
+    <div className="mx-auto max-w-2xl space-y-6 sm:space-y-8">
       <PageHeader
         back={<BackLink href={`/courses/${exam.courseId}`}>Course</BackLink>}
+        crumbs={[
+          { label: "My courses", href: "/dashboard" },
+          { label: "Course", href: `/courses/${exam.courseId}` },
+          { label: "Exams", href: `/courses/${exam.courseId}#exams` },
+          { label: exam.title ?? "Exam" },
+        ]}
         title={exam.title ?? "Exam"}
         lead={exam.description}
       />

@@ -1,18 +1,49 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useSyncExternalStore, type ReactNode } from "react";
 import { SectionIcon } from "./section-icon";
 import { collapsedStorageKey, parseCollapsed, sectionById, type CourseView, type SectionId } from "./sections";
+
+// Collapsed state lives in localStorage as a per-viewer convenience. It is read
+// through useSyncExternalStore with a server snapshot of "nothing stored", so
+// the server render and the hydration render are identical (all open) and the
+// saved state is applied right after. Every storage call is in a try/catch; if
+// storage is blocked the toggle still works for this visit via `memory`.
+const memory = new Map<string, string>();
+const listeners = new Set<() => void>();
+
+function readStored(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return memory.get(key) ?? null;
+  }
+}
+
+function writeStored(key: string, value: string) {
+  memory.set(key, value);
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    /* blocked: memory keeps it for this visit */
+  }
+  listeners.forEach((l) => l());
+}
+
+function subscribe(cb: () => void) {
+  listeners.add(cb);
+  window.addEventListener("storage", cb);
+  return () => {
+    listeners.delete(cb);
+    window.removeEventListener("storage", cb);
+  };
+}
 
 /**
  * One collapsible section of a course page. The header is a real button
  * (aria-expanded + aria-controls) and stays visible when collapsed, with a
  * one-line status. Collapsing only hides the body (the `hidden` attribute);
  * it never unmounts it, so a professor's half-filled form survives.
- *
- * Remembered state is a per-viewer convenience: every storage call is in a
- * try/catch, the first render is always "open" (identical to the server's, so
- * no hydration mismatch) and the saved state is applied after mount.
  */
 export function CourseSection({
   id,
@@ -29,28 +60,19 @@ export function CourseSection({
   children: ReactNode;
 }) {
   const section = sectionById(id);
-  const [collapsed, setCollapsed] = useState(false);
   const key = collapsedStorageKey(view, courseId);
-
-  useEffect(() => {
-    try {
-      setCollapsed(parseCollapsed(window.localStorage.getItem(key)).includes(id));
-    } catch {
-      /* storage blocked: stay open */
-    }
-  }, [key, id]);
+  const raw = useSyncExternalStore(
+    subscribe,
+    () => readStored(key),
+    () => null,
+  );
+  const collapsed = parseCollapsed(raw).includes(id);
 
   function toggle() {
-    const next = !collapsed;
-    setCollapsed(next);
-    try {
-      const set = new Set(parseCollapsed(window.localStorage.getItem(key)));
-      if (next) set.add(id);
-      else set.delete(id);
-      window.localStorage.setItem(key, JSON.stringify([...set]));
-    } catch {
-      /* storage blocked: the toggle still works for this visit */
-    }
+    const set = new Set(parseCollapsed(readStored(key)));
+    if (collapsed) set.delete(id);
+    else set.add(id);
+    writeStored(key, JSON.stringify([...set]));
   }
 
   return (

@@ -29,6 +29,12 @@ export default async function EditMaterialPage({
     <div className="max-w-xl space-y-6 sm:space-y-8">
       <PageHeader
         back={<BackLink href={`/professor/courses/${material.courseId}`}>Back to course</BackLink>}
+        crumbs={[
+          { label: "Teaching", href: "/professor" },
+          { label: "Course", href: `/professor/courses/${material.courseId}` },
+          { label: "Course materials", href: `/professor/courses/${material.courseId}#materials` },
+          { label: material.title },
+        ]}
         title="Edit material"
         lead={
           material.kind === "file"

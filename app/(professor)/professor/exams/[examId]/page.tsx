@@ -24,6 +24,12 @@ export default async function ProfessorExamPage({ params }: { params: Promise<{ 
     <div className="space-y-6 sm:space-y-8">
       <PageHeader
         back={<BackLink href={`/professor/courses/${exam.courseId}`}>Back to course</BackLink>}
+        crumbs={[
+          { label: "Teaching", href: "/professor" },
+          { label: "Course", href: `/professor/courses/${exam.courseId}` },
+          { label: "Exams", href: `/professor/courses/${exam.courseId}#exams` },
+          { label: exam.titleEn || exam.titleEs || "Untitled exam" },
+        ]}
         title={exam.titleEn || exam.titleEs || "Untitled exam"}
         lead="Multiple choice and true/false questions score themselves. You grade fill in the blank and essay questions. Both languages are needed to publish."
         actions={

@@ -28,6 +28,13 @@ export default async function ExamSubmissionsPage({ params }: { params: Promise<
     <div className="space-y-6 sm:space-y-8">
       <PageHeader
         back={<BackLink href={`/professor/exams/${exam.id}`}>Back to exam</BackLink>}
+        crumbs={[
+          { label: "Teaching", href: "/professor" },
+          { label: "Course", href: `/professor/courses/${exam.courseId}` },
+          { label: "Exams", href: `/professor/courses/${exam.courseId}#exams` },
+          { label: exam.titleEn || exam.titleEs || "Untitled exam", href: `/professor/exams/${exam.id}` },
+          { label: "Submissions" },
+        ]}
         title="Submissions"
         lead="Each attempt is graded separately. Multiple choice and true/false score themselves; you award points for the rest. A student's grade of record is their highest final attempt."
       />

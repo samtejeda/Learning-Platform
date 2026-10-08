@@ -1,23 +1,15 @@
 import Link from "next/link";
 import type { listExamsForProfessor } from "@/lib/data/exams";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardTitle } from "@/components/ui/card";
 import { DataList, DataRowIndex } from "@/components/ui/data-list";
 import { RowChevron } from "@/components/ui/row-chevron";
 
 type Exams = Awaited<ReturnType<typeof listExamsForProfessor>>;
 
-/** The professor's Exams card on the course page: status badge + counts per row. */
+/** The professor's exam rows for the course page's Exams section: status badge + counts per row. */
 export function ProfessorExamList({ exams }: { exams: Exams }) {
-  const published = exams.filter((e) => e.status === "published").length;
   return (
-    <Card>
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <CardTitle>Exams</CardTitle>
-        <span className="text-sm tabular-nums text-muted">
-          {exams.length === 0 ? "None yet" : `${published} of ${exams.length} published`}
-        </span>
-      </div>
+    <div>
       {exams.length === 0 ? (
         <p className="text-sm text-muted">No exams yet. Add one below.</p>
       ) : (
@@ -54,6 +46,6 @@ export function ProfessorExamList({ exams }: { exams: Exams }) {
           ))}
         </DataList>
       )}
-    </Card>
+    </div>
   );
 }

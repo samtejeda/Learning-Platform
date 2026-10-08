@@ -6,7 +6,7 @@ import { getCourseForProfessor } from "@/lib/data/courses";
 import { listExamsForProfessor } from "@/lib/data/exams";
 import { createExam } from "@/lib/exams/actions";
 import { inviteStudent, removeStudent, revokeInvitation } from "@/lib/enrollments/actions";
-import { Card, CardTitle } from "@/components/ui/card";
+import { CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { BackLink } from "@/components/ui/back-link";
 import { buttonClassName } from "@/components/ui/button";
@@ -19,6 +19,9 @@ import { CourseMaterialsManager } from "@/components/course-materials-manager";
 import { CourseMaterialForm } from "@/components/course-material-form";
 import { ProfessorExamList } from "@/components/exams/professor-exam-list";
 import { ExamForm } from "@/components/exams/exam-form";
+import { CourseFrame } from "@/components/course/course-frame";
+import { CourseSection } from "@/components/course/course-section";
+import { sectionsFor, type SectionId } from "@/components/course/sections";
 
 const paramsSchema = z.object({ courseId: z.uuid() });
 
@@ -41,10 +44,95 @@ export default async function ProfessorCoursePage({
   const enrolledCount = course.roster.enrolled.length;
   const invitedCount = course.roster.invited.length;
 
+  const publishedMaterials = course.materials.filter((m) => m.status === "published").length;
+  const publishedExams = examList.filter((e) => e.status === "published").length;
+
+  // Professors always see their add-content sections. The ORDER comes from the
+  // shared section list, the same one the chips and sidebar read.
+  const sections = sectionsFor("professor");
+
+  const body: Record<SectionId, { status: string; node: React.ReactNode }> = {
+    syllabus: {
+      status: course.syllabusUploadedAt ? "Uploaded" : "Not uploaded",
+      node: (
+        <>
+          <p className="mb-4 text-sm text-muted">
+            One PDF, visible to students as soon as it&apos;s uploaded — there&apos;s no separate publish step.
+          </p>
+          <SyllabusManager
+            courseId={course.id}
+            uploadedAt={course.syllabusUploadedAt ? course.syllabusUploadedAt.toISOString() : null}
+          />
+          {course.syllabusUploadedAt && (
+            <div className="mt-6 border-t border-hairline pt-4">
+              <p className="mb-1 text-sm font-medium text-ink">Preview</p>
+              <SyllabusViewer courseId={course.id} />
+            </div>
+          )}
+        </>
+      ),
+    },
+    lectures: {
+      status: course.lectures.length === 0 ? "None yet" : `${published} of ${course.lectures.length} published`,
+      node: (
+        <>
+          <LectureListManager courseId={course.id} lectures={course.lectures} />
+          <AddBlock title="Add a lecture">
+            <p className="mb-5 mt-1 text-sm text-muted">
+              Upload the video, then publish it when you&apos;re ready. Students only see published lectures.
+            </p>
+            <LectureUploadForm courseId={course.id} />
+          </AddBlock>
+        </>
+      ),
+    },
+    materials: {
+      status: course.materials.length === 0 ? "None yet" : `${publishedMaterials} of ${course.materials.length} published`,
+      node: (
+        <>
+          <CourseMaterialsManager courseId={course.id} materials={course.materials} />
+          <AddBlock title="Add a material">
+            <p className="mb-5 mt-1 text-sm text-muted">
+              Upload a file or add a link, then publish it when you&apos;re ready. Students only see published materials.
+            </p>
+            <CourseMaterialForm courseId={course.id} />
+          </AddBlock>
+        </>
+      ),
+    },
+    exams: {
+      status: examList.length === 0 ? "None yet" : `${publishedExams} of ${examList.length} published`,
+      node: (
+        <>
+          <ProfessorExamList exams={examList} />
+          <AddBlock title="Add an exam">
+            <p className="mb-5 mt-1 text-sm text-muted">
+              Start a draft, add questions in both languages, then publish. Students only see published exams.
+            </p>
+            <ExamForm action={createExam.bind(null, course.id)} submitLabel="Create draft" />
+          </AddBlock>
+        </>
+      ),
+    },
+    students: {
+      status: `${enrolledCount} enrolled${invitedCount > 0 ? ` · ${invitedCount} invited` : ""}`,
+      node: (
+        /* Bound ids are re-validated and ownership re-checked inside each action. */
+        <RosterManager
+          roster={course.roster}
+          invite={inviteStudent.bind(null, course.id)}
+          remove={removeStudent.bind(null, course.id)}
+          revoke={revokeInvitation.bind(null, course.id)}
+        />
+      ),
+    },
+  };
+
   return (
     <div className="space-y-6 sm:space-y-8">
       <PageHeader
         back={<BackLink href="/professor">Teaching</BackLink>}
+        crumbs={[{ label: "Teaching", href: "/professor" }, { label: course.title }]}
         title={course.title}
         eyebrow={course.professorName ? `Taught by ${course.professorName}` : undefined}
         lead={course.description}
@@ -55,89 +143,23 @@ export default async function ProfessorCoursePage({
         }
       />
 
-      <Card>
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <CardTitle>Lectures</CardTitle>
-          <span className="text-sm tabular-nums text-muted">
-            {course.lectures.length === 0
-              ? "None yet"
-              : `${published} of ${course.lectures.length} published`}
-          </span>
-        </div>
-        <LectureListManager courseId={course.id} lectures={course.lectures} />
-      </Card>
+      <CourseFrame sections={sections}>
+        {sections.map((s) => (
+          <CourseSection key={s.id} id={s.id} courseId={course.id} view="professor" status={body[s.id].status}>
+            {body[s.id].node}
+          </CourseSection>
+        ))}
+      </CourseFrame>
+    </div>
+  );
+}
 
-      <Card variant="outlined">
-        <CardTitle>Add a lecture</CardTitle>
-        <p className="mb-5 mt-1 text-sm text-muted">
-          Upload the video, then publish it when you&apos;re ready. Students only see published lectures.
-        </p>
-        <LectureUploadForm courseId={course.id} />
-      </Card>
-
-      <Card>
-        <CardTitle>Syllabus</CardTitle>
-        <p className="mb-4 mt-1 text-sm text-muted">
-          One PDF, visible to students as soon as it&apos;s uploaded — there&apos;s no separate publish step.
-        </p>
-        <SyllabusManager
-          courseId={course.id}
-          uploadedAt={course.syllabusUploadedAt ? course.syllabusUploadedAt.toISOString() : null}
-        />
-        {course.syllabusUploadedAt && (
-          <div className="mt-6 border-t border-hairline pt-4">
-            <p className="mb-1 text-sm font-medium text-ink">Preview</p>
-            <SyllabusViewer courseId={course.id} />
-          </div>
-        )}
-      </Card>
-
-      <Card>
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <CardTitle>Course materials</CardTitle>
-          <span className="text-sm tabular-nums text-muted">
-            {course.materials.length === 0
-              ? "None yet"
-              : `${course.materials.filter((m) => m.status === "published").length} of ${course.materials.length} published`}
-          </span>
-        </div>
-        <CourseMaterialsManager courseId={course.id} materials={course.materials} />
-      </Card>
-
-      <Card variant="outlined">
-        <CardTitle>Add a material</CardTitle>
-        <p className="mb-5 mt-1 text-sm text-muted">
-          Upload a file or add a link, then publish it when you&apos;re ready. Students only see published
-          materials.
-        </p>
-        <CourseMaterialForm courseId={course.id} />
-      </Card>
-
-      <ProfessorExamList exams={examList} />
-
-      <Card variant="outlined">
-        <CardTitle>Add an exam</CardTitle>
-        <p className="mb-5 mt-1 text-sm text-muted">
-          Start a draft, add questions in both languages, then publish. Students only see published exams.
-        </p>
-        <ExamForm action={createExam.bind(null, course.id)} submitLabel="Create draft" />
-      </Card>
-
-      <Card>
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <CardTitle>Students</CardTitle>
-          <span className="text-sm text-muted">
-            {enrolledCount} enrolled{invitedCount > 0 ? ` · ${invitedCount} invited` : ""}
-          </span>
-        </div>
-        {/* Bound ids are re-validated and ownership re-checked inside each action. */}
-        <RosterManager
-          roster={course.roster}
-          invite={inviteStudent.bind(null, course.id)}
-          remove={removeStudent.bind(null, course.id)}
-          revoke={revokeInvitation.bind(null, course.id)}
-        />
-      </Card>
+/** The "Add …" form that sits under a section's list. */
+function AddBlock({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mt-6 rounded-lg border border-hairline bg-canvas p-4 sm:p-5">
+      <CardTitle as="h3">{title}</CardTitle>
+      {children}
     </div>
   );
 }

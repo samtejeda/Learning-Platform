@@ -53,6 +53,21 @@ export default async function LecturePage({
             {courseTitle ?? "Back to course"}
           </BackLink>
         }
+        crumbs={
+          lecture.tracksProgress
+            ? [
+                { label: "My courses", href: "/dashboard" },
+                { label: courseTitle ?? "Course", href: courseHref },
+                { label: "Lectures", href: `${courseHref}#lectures` },
+                { label: lecture.title },
+              ]
+            : [
+                { label: "Teaching", href: "/professor" },
+                { label: "Course", href: `/professor/courses/${lecture.courseId}` },
+                { label: "Lectures", href: `/professor/courses/${lecture.courseId}#lectures` },
+                { label: lecture.title },
+              ]
+        }
         title={lecture.title}
       />
 
