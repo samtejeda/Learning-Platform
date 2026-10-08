@@ -224,6 +224,13 @@ export type StudentAttempt = {
     /** Only once graded. */
     feedback: string | null;
   }[];
+  /** The exam's setting: keys are shown after the student's attempts are used up. A flag, never a key. */
+  revealKeysAfterAttempts: boolean;
+  /** This student's attempts on the exam (including an open one) and the cap. */
+  attemptsUsed: number;
+  maxAttempts: number;
+  /** max(0, maxAttempts - attemptsUsed). */
+  attemptsLeft: number;
   /** Null while in progress; set once submitted (provisional until final). */
   result: StudentAttemptResult | null;
   /**
@@ -251,6 +258,8 @@ export async function getAttemptForStudent(attemptId: string, studentId: string)
         startedAt: examSubmissions.startedAt,
         submittedAt: examSubmissions.submittedAt,
         durationMinutes: exams.durationMinutes,
+        maxAttempts: exams.maxAttempts,
+        revealKeysAfterAttempts: exams.revealKeysAfterAttempts,
         titleEs: exams.titleEs,
         titleEn: exams.titleEn,
         descriptionEs: exams.descriptionEs,
@@ -323,11 +332,20 @@ export async function getAttemptForStudent(attemptId: string, studentId: string)
     revealedAnswers = await revealedKeysForStudent(row.examId, studentId);
   }
 
+  const [{ used }] = await db
+    .select({ used: sql<number>`count(*)::int` })
+    .from(examSubmissions)
+    .where(and(eq(examSubmissions.examId, row.examId), eq(examSubmissions.studentId, studentId)));
+
   return {
     id: row.id,
     examId: row.examId,
     courseId: row.courseId,
     attemptNumber: row.attemptNumber,
+    revealKeysAfterAttempts: row.revealKeysAfterAttempts,
+    attemptsUsed: used,
+    maxAttempts: row.maxAttempts,
+    attemptsLeft: Math.max(0, row.maxAttempts - used),
     language: lang,
     startedAt: row.startedAt,
     deadline: attemptDeadline(row.startedAt, row.durationMinutes),

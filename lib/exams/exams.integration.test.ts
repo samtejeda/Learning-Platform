@@ -143,6 +143,43 @@ describe("exams: authoring, publish gate, attempts, timing, grading", () => {
     expect(await deleteQuestion(extra)).toEqual({ success: "Question deleted." });
   });
 
+  it("option lines and the blank marker are validated, never silently changed (create + update, cross-professor)", async () => {
+    actAs(SEED.profA.id);
+    const to = await redirectTarget(createExam(courseId, null, fd(examFields)));
+    const id = to.split("/").pop()!;
+    const list = async () => (await getOwnedExam(id, A))!.questions;
+    // an empty line in the middle is refused, in either language (it would shift the key)
+    expect((await createQuestion(id, null, fd({ ...MC, optionsEs: "e0\n\ne1\ne2" })))?.error).toMatch(/empty line between them/);
+    expect((await createQuestion(id, null, fd({ ...MC, optionsEn: "\nn0\nn1\nn2" })))?.error).toMatch(/empty line between them/);
+    // the two languages must list the same number of options
+    expect((await createQuestion(id, null, fd({ ...MC, optionsEn: "n0\nn1" })))?.error).toMatch(/same number of options/);
+    expect(await list()).toHaveLength(0);
+    // trailing newline is fine; positions and key are exactly what was typed
+    expect(await createQuestion(id, null, fd({ ...MC, optionsEs: "e0\ne1\ne2\n", correctOption: "2" }))).toEqual({ success: "Question added." });
+    const [q] = await list();
+    expect(q).toMatchObject({ optionsEs: ["e0", "e1", "e2"], optionsEn: ["n0", "n1", "n2"], correctOption: 2 });
+    // update: same refusals, nothing stored changes
+    expect((await updateQuestion(q.id, null, fd({ ...MC, optionsEs: "e0\n\ne1\ne2", correctOption: "2" })))?.error).toMatch(/empty line between them/);
+    expect((await updateQuestion(q.id, null, fd({ ...MC, optionsEn: "n0\nn1\nn2\nn3", correctOption: "2" })))?.error).toMatch(/same number of options/);
+    expect((await list())[0]).toMatchObject({ optionsEs: ["e0", "e1", "e2"], optionsEn: ["n0", "n1", "n2"], correctOption: 2 });
+    actAs(SEED.profB.id);
+    expect(await updateQuestion(q.id, null, fd({ ...MC, optionsEs: "x0\nx1\nx2", optionsEn: "y0\ny1\ny2", correctOption: "0" }))).toEqual({ error: "Question not found." });
+    actAs(SEED.profA.id);
+    expect((await list())[0]).toMatchObject({ optionsEs: ["e0", "e1", "e2"], correctOption: 2 });
+    // the blank marker: refused in non-fill prompts (create and update, either language), accepted in fill
+    for (const t of [MC, TF, ESSAY]) {
+      expect((await createQuestion(id, null, fd({ ...t, promptEs: "PLACEHOLDER {{blank}}" })))?.error).toMatch(/only be used in fill-in-the-blank/);
+      expect((await createQuestion(id, null, fd({ ...t, promptEn: "PLACEHOLDER {{blank}}" })))?.error).toMatch(/only be used in fill-in-the-blank/);
+    }
+    expect((await updateQuestion(q.id, null, fd({ ...MC, optionsEs: "e0\ne1\ne2", promptEs: "x {{blank}}", correctOption: "2" })))?.error).toMatch(/only be used in fill-in-the-blank/);
+    expect(await createQuestion(id, null, fd(FILL))).toEqual({ success: "Question added." });
+    expect((await list())[1].promptEs).toContain("{{blank}}");
+    actAs(SEED.profB.id);
+    expect(await createQuestion(id, null, fd(FILL))).toEqual({ error: "Exam not found." });
+    actAs(SEED.profA.id);
+    expect(await redirectTarget(deleteExam(id))).toBe(`/professor/courses/${courseId}`);
+  });
+
   it("auto-scored questions can't be saved or published without a correct answer; points are bounded", async () => {
     actAs(SEED.profA.id);
     const to = await redirectTarget(createExam(courseId, null, fd(examFields)));
@@ -254,6 +291,7 @@ describe("exams: authoring, publish gate, attempts, timing, grading", () => {
     // mid-attempt: no result, no right/wrong flags, no revealed keys
     expect(view.result).toBeNull();
     expect(view.revealedAnswers).toBeNull();
+    expect(view).toMatchObject({ revealKeysAfterAttempts: false, attemptsUsed: 1, maxAttempts: 2, attemptsLeft: 1 });
     expect(wire).not.toMatch(/perQuestion|"state"|"correct"|revealedAnswers":\[|"score":\{/);
 
     // another student can't see this attempt
@@ -305,6 +343,8 @@ describe("exams: authoring, publish gate, attempts, timing, grading", () => {
     expect(v.result!.perQuestion.map((p) => p.state)).toEqual(["correct", "correct", "awaiting", "awaiting"]);
     expect(v.grade).toBeNull();
     expect(v.revealedAnswers).toBeNull(); // default: right/wrong only, never the correct answer
+    expect(v).toMatchObject({ revealKeysAfterAttempts: false, attemptsUsed: 1, maxAttempts: 2, attemptsLeft: 1 });
+    expect(JSON.stringify(v)).not.toMatch(/correctOption|correct_option|referenceAnswer|reference_answer|REFKEY|revealedAnswers":\[/);
     expect(v.answers.find((a) => a.questionId === qIds[2])?.blankAnswers).toEqual(["b1", "b2"]);
   });
 
@@ -402,19 +442,26 @@ describe("exams: authoring, publish gate, attempts, timing, grading", () => {
   it("the correct answer reaches a student only when the exam's reveal setting is on and every attempt is used", async () => {
     const view = async () => (await getAttemptForStudent(attempt1, SEED.student.id))!;
     actAs(SEED.student.id);
-    expect((await view()).revealedAnswers).toBeNull(); // default off, attempts used up
+    const off = await view();
+    expect(off.revealedAnswers).toBeNull(); // default off, attempts used up
+    expect(off).toMatchObject({ revealKeysAfterAttempts: false, attemptsUsed: 2, maxAttempts: 2, attemptsLeft: 0 });
+    expect(JSON.stringify(off)).not.toMatch(/correctOption|correct_option|referenceAnswer|reference_answer|REFKEY|revealedAnswers":\[/);
     actAs(SEED.profA.id);
     const on = { ...examFields, revealKeysAfterAttempts: "on" };
     // reveal on, but a third attempt is still available: nothing revealed
     expect(await updateExam(examId, null, fd({ ...on, maxAttempts: "3" }))).toEqual({ success: "Saved." });
     actAs(SEED.student.id);
-    expect((await view()).revealedAnswers).toBeNull();
+    const left = await view();
+    expect(left.revealedAnswers).toBeNull();
+    expect(left).toMatchObject({ revealKeysAfterAttempts: true, attemptsUsed: 2, maxAttempts: 3, attemptsLeft: 1 });
+    expect(JSON.stringify(left)).not.toMatch(/correctOption|correct_option|referenceAnswer|reference_answer|REFKEY|revealedAnswers":\[/);
     actAs(SEED.profA.id);
     expect(await updateExam(examId, null, fd(on))).toEqual({ success: "Saved." });
     expect((await getOwnedExam(examId, A))!.revealKeysAfterAttempts).toBe(true);
     actAs(SEED.student.id);
     const revealed = await view();
     expect(revealed.revealedAnswers).toEqual([{ questionId: qIds[0], correct: 1 }, { questionId: qIds[1], correct: 0 }]);
+    expect(revealed).toMatchObject({ revealKeysAfterAttempts: true, attemptsUsed: 2, maxAttempts: 2, attemptsLeft: 0 });
     expect(JSON.stringify(revealed)).not.toMatch(/correctOption|correct_option|referenceAnswer|reference_answer|REFKEY/); // guides never
     // another student can't use it, and off again hides it
     expect(await getAttemptForStudent(attempt1, SEED.student2.id)).toBeNull();
