@@ -31,6 +31,11 @@ export default async function EditCoursePage({
     <div className="max-w-xl space-y-6 sm:space-y-8">
       <PageHeader
         back={<BackLink href={`/professor/courses/${course.id}`}>{course.title}</BackLink>}
+        crumbs={[
+          { label: "Teaching", href: "/professor" },
+          { label: course.title, href: `/professor/courses/${course.id}` },
+          { label: "Edit details" },
+        ]}
         title="Edit course"
       />
       <Card>

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Breadcrumb, type Crumb } from "./breadcrumb";
 
 type Props = {
   title: string;
@@ -8,14 +9,23 @@ type Props = {
   lead?: ReactNode;
   /** Buttons/links; stack under the title on phones, sit to the right on sm+. */
   actions?: ReactNode;
-  /** Back link or breadcrumb rendered above everything. */
+  /** Back link rendered above everything. With `crumbs`, it shows below the `lg` breakpoint only. */
   back?: ReactNode;
+  /** The trail for wide screens (replaces the Back link from `lg` up). The last item is the current page. */
+  crumbs?: Crumb[];
 };
 
-export function PageHeader({ title, eyebrow, lead, actions, back }: Props) {
+export function PageHeader({ title, eyebrow, lead, actions, back, crumbs }: Props) {
   return (
     <header className="space-y-3">
-      {back}
+      {crumbs ? (
+        <>
+          <div className="lg:hidden">{back}</div>
+          <Breadcrumb items={crumbs} />
+        </>
+      ) : (
+        back
+      )}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           {eyebrow && <p className="mb-1 text-sm font-medium text-muted">{eyebrow}</p>}

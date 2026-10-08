@@ -28,11 +28,18 @@ export default async function AttemptPage({
   if (!attempt || attempt.examId !== parsed.data.examId || attempt.courseId !== parsed.data.courseId) notFound();
 
   const back = <BackLink href={`/courses/${attempt.courseId}/exams/${attempt.examId}`}>Exam</BackLink>;
+  const crumbs = [
+    { label: "My courses", href: "/dashboard" },
+    { label: "Course", href: `/courses/${attempt.courseId}` },
+    { label: "Exams", href: `/courses/${attempt.courseId}#exams` },
+    { label: attempt.title ?? "Exam", href: `/courses/${attempt.courseId}/exams/${attempt.examId}` },
+    { label: `Attempt ${attempt.attemptNumber}` },
+  ];
 
   if (attempt.status === "in_progress") {
     return (
-      <div className="max-w-2xl space-y-6">
-        <PageHeader back={back} title={attempt.title ?? "Exam"} eyebrow={`Attempt ${attempt.attemptNumber}`} lead={attempt.description} />
+      <div className="mx-auto max-w-2xl space-y-6">
+        <PageHeader back={back} crumbs={crumbs} title={attempt.title ?? "Exam"} eyebrow={`Attempt ${attempt.attemptNumber}`} lead={attempt.description} />
         <ExamAttemptForm
           attemptId={attempt.id}
           language={attempt.language}
@@ -51,8 +58,8 @@ export default async function AttemptPage({
   // Attempts left, from the same read the exam page uses (enrolled + published inside the query).
   const landing = await getExamLandingForStudent(attempt.examId, user.id, attempt.language);
   return (
-    <div className="max-w-2xl space-y-6">
-      <PageHeader back={back} title={attempt.title ?? "Exam"} eyebrow={`Attempt ${attempt.attemptNumber} · submitted`} />
+    <div className="mx-auto max-w-2xl space-y-6">
+      <PageHeader back={back} crumbs={crumbs} title={attempt.title ?? "Exam"} eyebrow={`Attempt ${attempt.attemptNumber} · submitted`} />
       {result && (
         <ResultSummary
           result={result}

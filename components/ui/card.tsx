@@ -20,8 +20,10 @@ export function Card({
 }
 
 /** Section heading inside a card: sans, 18px/500 (DESIGN.md title-md). */
-export function CardTitle({ className = "", ...props }: HTMLAttributes<HTMLHeadingElement>) {
-  return (
-    <h2 className={`font-sans text-lg font-medium tracking-normal text-ink ${className}`} {...props} />
-  );
+export function CardTitle({
+  className = "",
+  as: Tag = "h2",
+  ...props
+}: HTMLAttributes<HTMLHeadingElement> & { as?: "h2" | "h3" }) {
+  return <Tag className={`font-sans text-lg font-medium tracking-normal text-ink ${className}`} {...props} />;
 }

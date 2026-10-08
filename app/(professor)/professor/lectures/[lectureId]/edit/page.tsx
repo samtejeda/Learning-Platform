@@ -29,6 +29,12 @@ export default async function EditLecturePage({
     <div className="max-w-xl space-y-6 sm:space-y-8">
       <PageHeader
         back={<BackLink href={`/professor/courses/${lecture.courseId}`}>Back to course</BackLink>}
+        crumbs={[
+          { label: "Teaching", href: "/professor" },
+          { label: "Course", href: `/professor/courses/${lecture.courseId}` },
+          { label: "Lectures", href: `/professor/courses/${lecture.courseId}#lectures` },
+          { label: lecture.title },
+        ]}
         title="Edit lecture"
         lead="Title and description only. To replace the video, delete the lecture and upload again."
       />

@@ -6,7 +6,6 @@ import { getCourseForStudent } from "@/lib/data/courses";
 import { StudentExamList } from "@/components/exams/student-exam-list";
 import { listExamsForStudent } from "@/lib/data/exam-attempts";
 import { DEFAULT_CONTENT_LANGUAGE } from "@/lib/exams/language";
-import { Card, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { BackLink } from "@/components/ui/back-link";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +15,9 @@ import { DataList, DataRowIndex } from "@/components/ui/data-list";
 import { formatTime } from "@/lib/video/format-time";
 import { SyllabusViewer } from "@/components/syllabus-viewer";
 import { CourseMaterialsList } from "@/components/course-materials-list";
+import { CourseFrame } from "@/components/course/course-frame";
+import { CourseSection } from "@/components/course/course-section";
+import { sectionsFor, type SectionId } from "@/components/course/sections";
 
 const paramsSchema = z.object({ courseId: z.uuid() });
 
@@ -38,35 +40,29 @@ export default async function StudentCoursePage({
   const examList = await listExamsForStudent(course.id, user.id, DEFAULT_CONTENT_LANGUAGE);
   const total = course.lectures.length;
   const done = course.lectures.filter((l) => l.completed).length;
+  const inProgress = examList.filter((e) => e.openAttemptId !== null).length;
   const hasAnyContent = total > 0 || course.hasSyllabus || course.materials.length > 0 || examList.length > 0;
 
-  return (
-    <div className="space-y-6 sm:space-y-8">
-      <PageHeader
-        back={<BackLink href="/dashboard">My courses</BackLink>}
-        title={course.title}
-        eyebrow={course.professorName ? `Taught by ${course.professorName}` : undefined}
-        lead={course.description}
-      />
+  // A section appears only when it has content (CLAUDE.md). The ORDER comes
+  // from the shared section list, the same one the chips and sidebar read.
+  const sections = sectionsFor("student", {
+    syllabus: course.hasSyllabus,
+    lectures: total > 0,
+    materials: course.materials.length > 0,
+    exams: examList.length > 0,
+  });
 
-      {/* Sections render only when they have content (CLAUDE.md). When the
-          course has no content at all, say so instead of showing a blank page. */}
-      {!hasAnyContent && (
-        <EmptyState
-          title="Nothing here yet."
-          description="Your professor hasn't published anything for this course yet. Check back soon."
-        />
-      )}
-      {total > 0 && (
-        <Card>
-          <div className="mb-4 space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <CardTitle>Lectures</CardTitle>
-              <span className="text-sm tabular-nums text-muted">
-                {done} of {total} complete
-              </span>
-            </div>
-            <ProgressBar value={(done / total) * 100} label="Course progress" />
+  const body: Partial<Record<SectionId, { status: string; node: React.ReactNode }>> = {
+    syllabus: {
+      status: "PDF available",
+      node: <SyllabusViewer courseId={course.id} />,
+    },
+    lectures: {
+      status: `${done} of ${total} completed`,
+      node: (
+        <>
+          <div className="mb-3">
+            <ProgressBar value={total > 0 ? (done / total) * 100 : 0} label="Course progress" />
           </div>
           <DataList>
             {course.lectures.map((lecture, i) => (
@@ -100,31 +96,47 @@ export default async function StudentCoursePage({
               </li>
             ))}
           </DataList>
-        </Card>
+        </>
+      ),
+    },
+    materials: {
+      status: `${course.materials.length} ${course.materials.length === 1 ? "item" : "items"}`,
+      node: <CourseMaterialsList materials={course.materials} />,
+    },
+    exams: {
+      status: `${examList.length} ${examList.length === 1 ? "exam" : "exams"}${inProgress > 0 ? ` · ${inProgress} in progress` : ""}`,
+      node: <StudentExamList courseId={course.id} exams={examList} />,
+    },
+  };
+
+  return (
+    <div className="space-y-6 sm:space-y-8">
+      <PageHeader
+        back={<BackLink href="/dashboard">My courses</BackLink>}
+        crumbs={[{ label: "My courses", href: "/dashboard" }, { label: course.title }]}
+        title={course.title}
+        eyebrow={course.professorName ? `Taught by ${course.professorName}` : undefined}
+        lead={course.description}
+      />
+
+      {/* When the course has no content at all, say so instead of showing a blank page. */}
+      {!hasAnyContent && (
+        <EmptyState
+          title="Nothing here yet."
+          description="Your professor hasn't published anything for this course yet. Check back soon."
+        />
       )}
 
-      {examList.length > 0 && <StudentExamList courseId={course.id} exams={examList} />}
-
-      {course.hasSyllabus && (
-        <Card>
-          <CardTitle>Syllabus</CardTitle>
-          <div className="mt-2">
-            <SyllabusViewer courseId={course.id} />
-          </div>
-        </Card>
-      )}
-
-      {course.materials.length > 0 && (
-        <Card>
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <CardTitle>Course materials</CardTitle>
-            <span className="text-sm tabular-nums text-muted">
-              {course.materials.length} {course.materials.length === 1 ? "item" : "items"}
-            </span>
-          </div>
-          <CourseMaterialsList materials={course.materials} />
-        </Card>
-      )}
+      <CourseFrame sections={sections}>
+        {sections.map((s) => {
+          const b = body[s.id];
+          return b ? (
+            <CourseSection key={s.id} id={s.id} courseId={course.id} view="student" status={b.status}>
+              {b.node}
+            </CourseSection>
+          ) : null;
+        })}
+      </CourseFrame>
     </div>
   );
 }

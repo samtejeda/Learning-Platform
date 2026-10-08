@@ -14,6 +14,7 @@ export default async function NewCoursePage() {
     <div className="max-w-xl space-y-6 sm:space-y-8">
       <PageHeader
         back={<BackLink href="/professor">Teaching</BackLink>}
+        crumbs={[{ label: "Teaching", href: "/professor" }, { label: "New course" }]}
         title="New course"
         lead="You can add lectures and invite students once it's created."
       />
