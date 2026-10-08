@@ -38,6 +38,21 @@ describe("normalizeQuestionFields", () => {
     const many = "{{blank}}".repeat(21);
     expect(normalizeQuestionFields("fill_in_the_blank", { ...input, promptEs: many }).ok).toBe(false);
   });
+  it("rejects options that differ in count between languages (the key must mean the same option)", () => {
+    const r = normalizeQuestionFields("multiple_choice", { ...input, optionsEs: ["a", "b", "c"], optionsEn: ["a", "b"] });
+    expect(!r.ok && r.error).toMatch(/same number of options/);
+    expect(normalizeQuestionFields("multiple_choice", { ...input, optionsEn: [] }).ok).toBe(true); // drafting one language
+  });
+  it("the blank marker is accepted in fill prompts and rejected everywhere else", () => {
+    const withToken = { ...input, promptEs: "a {{blank}}", promptEn: "b {{blank}}" };
+    expect(normalizeQuestionFields("fill_in_the_blank", withToken).ok).toBe(true);
+    for (const t of ["multiple_choice", "true_false", "short_essay"] as const) {
+      const r = normalizeQuestionFields(t, withToken);
+      expect(!r.ok && r.error).toMatch(/only be used in fill-in-the-blank/);
+      expect(normalizeQuestionFields(t, { ...input, promptEn: "x {{blank}}" }).ok).toBe(false); // either language
+    }
+    expect(normalizeQuestionFields("short_essay", { ...input, promptEs: "a {{blank" }).ok).toBe(true); // not the token
+  });
   it("text types drop options and key, keep reference answers", () => {
     for (const t of ["fill_in_the_blank", "short_essay"] as const) {
       const r = normalizeQuestionFields(t, input);

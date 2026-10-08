@@ -53,18 +53,29 @@ export const examFormSchema = z.object({
 });
 export type ExamFormInput = z.output<typeof examFormSchema>;
 
-/** One option per line → string[] (blank lines dropped). */
+/**
+ * One option per line → string[]. A blank line BEFORE the last option is an
+ * error, never dropped: dropping it would shift every later position, and the
+ * stored key is a position. Trailing blank lines (e.g. the textarea's final
+ * newline) are trimmed; they can't shift anything.
+ */
 const optionLines = (label: string) =>
   z
     .string()
     .max(MC_MAX_OPTIONS * (OPTION_MAX_LENGTH + 2), `${label} are too long.`)
     .optional()
-    .transform((v) =>
-      (v ?? "")
-        .split(/\r?\n/)
-        .map((l) => l.trim())
-        .filter((l) => l.length > 0),
-    )
+    .transform((v, ctx) => {
+      const lines = (v ?? "").split(/\r?\n/).map((l) => l.trim());
+      while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+      if (lines.some((l) => l === "")) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Options can't have an empty line between them. Remove the empty line or type the option.",
+        });
+        return z.NEVER;
+      }
+      return lines;
+    })
     .pipe(
       z
         .array(z.string().max(OPTION_MAX_LENGTH, `Each option must be at most ${OPTION_MAX_LENGTH} characters.`))

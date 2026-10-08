@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { answersSchema, createQuestionSchema, examFormSchema, gradeSchema } from "./exams";
+import { answersSchema, createQuestionSchema, examFormSchema, gradeSchema, questionFieldsSchema } from "./exams";
 
 describe("examFormSchema", () => {
   it("allows incomplete drafts (empty titles → null) and coerces numbers", () => {
@@ -15,7 +15,7 @@ describe("examFormSchema", () => {
 
 describe("createQuestionSchema", () => {
   it("splits options by line and treats an empty key as null", () => {
-    const r = createQuestionSchema.parse({ type: "multiple_choice", optionsEs: "a\n\n b \r\nc", correctOption: "" });
+    const r = createQuestionSchema.parse({ type: "multiple_choice", optionsEs: "a\n b \r\nc\n", correctOption: "" });
     expect(r.optionsEs).toEqual(["a", "b", "c"]);
     expect(r.correctOption).toBeNull();
   });
@@ -45,5 +45,22 @@ describe("gradeSchema", () => {
       expect(gradeSchema.safeParse({ answerPoints: { [u]: bad } }).success).toBe(false);
     }
     expect(gradeSchema.safeParse({ answerPoints: { "not-a-uuid": "1" } }).success).toBe(false);
+  });
+});
+
+describe("option lines", () => {
+  const parse = (optionsEs: string) => questionFieldsSchema.safeParse({ optionsEs });
+  it("rejects an empty line before the last option instead of dropping it (it would shift the key)", () => {
+    for (const bad of ["a\n\nb", "\na\nb", "a\n   \nb\nc", "a\r\n\r\nb"]) {
+      const r = parse(bad);
+      expect(r.success).toBe(false);
+      expect(!r.success && r.error.issues[0].message).toMatch(/empty line between them/);
+    }
+  });
+  it("trims trailing blank lines and keeps order", () => {
+    expect(parse("a\nb\n").data?.optionsEs).toEqual(["a", "b"]);
+    expect(parse(" a \n b \n\n  \n").data?.optionsEs).toEqual(["a", "b"]);
+    expect(parse("").data?.optionsEs).toEqual([]);
+    expect(questionFieldsSchema.parse({}).optionsEs).toEqual([]);
   });
 });
