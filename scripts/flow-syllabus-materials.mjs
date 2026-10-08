@@ -47,7 +47,7 @@ const ctx = async (cookieFile) => {
   await c.addCookies(JSON.parse(await readFile(cookieFile, "utf8")));
   return c;
 };
-const matForm = "form:has(input[name=kind])";
+const matForm = "#materials form:has(input[name=kind])";
 const waitSaved = async (page) => {
   await page.waitForSelector(`${matForm} [role=status]:has-text("Saved")`, { timeout: 45000 });
   await page.waitForLoadState("networkidle");
@@ -75,13 +75,13 @@ await prof.waitForSelector("form:has(#email) button[type=submit]:not([aria-busy=
 await prof.waitForLoadState("networkidle");
 
 // syllabus: upload → visible immediately, no publish step
-await prof.setInputFiles("form:has(input[name=file]):not(:has(input[name=kind])) input[name=file] >> nth=-1", {
+await prof.setInputFiles("#syllabus input[type=file]", {
   name: "syllabus.pdf",
   mimeType: "application/pdf",
   buffer: PDF,
 });
 await shot(prof, "prof-syllabus-file-chosen");
-const syllabusForm = prof.locator("form:has(input[name=file]):not(:has(input[name=kind]))").last();
+const syllabusForm = prof.locator("#syllabus form:has(input[type=file])");
 await syllabusForm.locator("button[type=submit]").click();
 await prof.waitForSelector("text=Syllabus uploaded.", { timeout: 45000 });
 await prof.waitForLoadState("networkidle");
@@ -123,7 +123,7 @@ check(await student.locator("text=View syllabus (PDF)").count() > 0, "student se
 
 // publish both
 for (let i = 0; i < 2; i++) {
-  await prof.locator("button:has-text('Publish')").first().click();
+  await prof.locator("#materials-content").getByRole("button", { name: "Publish", exact: true }).first().click();
   await prof.waitForLoadState("networkidle");
   await prof.waitForTimeout(800);
 }
@@ -157,6 +157,7 @@ const tapOpensTab = async (selector, label) => {
   check(outcome !== null, `${label} opened in a new tab (${outcome ?? "tab stayed blank"})`);
   await tab.close().catch(() => {});
 };
+await student.waitForTimeout(1500); // let the page hydrate before tapping
 await tapOpensTab("button:has-text('View syllabus (PDF)')", "syllabus");
 await tapOpensTab("button:has-text('Week 1 handout')", "file material");
 check(
