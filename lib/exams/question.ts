@@ -1,4 +1,4 @@
-import { countBlanks, MAX_BLANKS } from "./blanks";
+import { BLANK_TOKEN, countBlanks, MAX_BLANKS } from "./blanks";
 import { MC_MIN_OPTIONS } from "./limits";
 import type { QuestionFieldsInput } from "@/lib/validation/exams";
 
@@ -24,6 +24,11 @@ export function normalizeQuestionFields(
   type: QuestionType,
   f: QuestionFieldsInput,
 ): { ok: true; columns: QuestionColumns } | { ok: false; error: string } {
+  // The blank marker belongs to fill-in-the-blank prompts only. Rejected (not
+  // stripped) so a professor's text is never silently changed.
+  if (type !== "fill_in_the_blank" && ((f.promptEs ?? "").includes(BLANK_TOKEN) || (f.promptEn ?? "").includes(BLANK_TOKEN))) {
+    return { ok: false, error: "The blank marker can only be used in fill-in-the-blank questions." };
+  }
   const base = { promptEs: f.promptEs, promptEn: f.promptEn, ...(f.points !== undefined ? { points: f.points } : {}) };
   switch (type) {
     case "multiple_choice": {
@@ -32,6 +37,11 @@ export function normalizeQuestionFields(
       if (lists.length === 0) return { ok: false, error: "Add the answer options and mark the correct one." };
       if (lists.some((l) => l.length < MC_MIN_OPTIONS)) {
         return { ok: false, error: `Multiple choice needs at least ${MC_MIN_OPTIONS} options.` };
+      }
+      // A key is a position, so both languages must list the same number of options
+      // (one may be empty while drafting).
+      if (f.optionsEs.length > 0 && f.optionsEn.length > 0 && f.optionsEs.length !== f.optionsEn.length) {
+        return { ok: false, error: "Spanish and English need the same number of options, so the correct answer is the same option in both." };
       }
       if (f.correctOption === null) return { ok: false, error: "Mark the correct answer." };
       if (lists.some((l) => f.correctOption! >= l.length)) {
