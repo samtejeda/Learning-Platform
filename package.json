@@ -30,6 +30,7 @@
     "flow-lecture": "node scripts/flow-lecture.mjs",
     "flow-syllabus-materials": "node scripts/flow-syllabus-materials.mjs",
     "flow-exams": "node scripts/flow-exams.mjs",
+    "flow-course-nav": "node scripts/flow-course-nav.mjs",
     "cdn:verify": "dotenv -e .env.local -- node scripts/cdn-verify-cache.mjs"
   },
   "dependencies": {
