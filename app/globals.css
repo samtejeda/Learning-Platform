@@ -109,6 +109,12 @@
   ::selection {
     background: color-mix(in oklab, var(--color-primary) 25%, transparent);
   }
+  /* In-page links (course section chips and sidebar) glide, unless the visitor asked for less motion. */
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
+  }
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
