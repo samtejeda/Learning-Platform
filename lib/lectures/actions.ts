@@ -7,6 +7,12 @@ import { logger } from "@/lib/logger";
 import { assertRole } from "@/lib/auth/session";
 import { findOwnedCourse } from "@/lib/data/courses";
 import {
+  comprehensionPublishProblems,
+  saveOwnedComprehension,
+  setOwnedComprehensionEnabled,
+  type ComprehensionEditResult,
+} from "@/lib/data/lecture-comprehension";
+import {
   deleteLectureRow,
   getOwnedLecture,
   insertLecture,
@@ -27,6 +33,8 @@ import {
 } from "@/lib/storage";
 import { evaluateEncode } from "@/lib/video/encode-policy";
 import { probeMp4 } from "@/lib/video/mp4-probe";
+import { normalizeSlot, type ComprehensionProblem } from "@/lib/lectures/comprehension";
+import { comprehensionFormSchema } from "@/lib/validation/lecture-comprehension";
 import { parseFormData, parseObject, type ActionState } from "@/lib/validation/form";
 import {
   createLectureSchema,
@@ -175,7 +183,15 @@ export async function publishLecture(lectureId: string): Promise<ActionState> {
   const lecture = await ownedLectureOrNull(lectureId);
   if (!lecture) return { error: NOT_FOUND };
   if (!lecture.videoUploadedAt) return { error: "Upload a video before publishing." };
-  await setLecturePublished(lecture.id, true);
+  // An enabled comprehension question must be complete in both languages
+  // (re-checked under a lock inside setLecturePublished).
+  const problems = await comprehensionPublishProblems(lecture.id);
+  if (problems.length > 0) {
+    return { error: `Finish the comprehension question or turn it off before publishing. ${describeProblems(problems)}` };
+  }
+  if (!(await setLecturePublished(lecture.id, true))) {
+    return { error: "This lecture can't be published right now. Check the video and the comprehension question." };
+  }
   revalidatePath(`/professor/courses/${lecture.courseId}`);
   return { success: "Published." };
 }
@@ -231,4 +247,63 @@ export async function deleteLecture(lectureId: string): Promise<ActionState> {
   await deleteLectureRow(lecture.id);
   revalidatePath(`/professor/courses/${lecture.courseId}`);
   return { success: "Lecture deleted." };
+}
+
+// ─── Comprehension question (professor) ───────────────────────────────────────
+// Per-lecture, bilingual, multiple choice, up to two questions (slot 2 is the
+// optional second-attempt question). Every action is role-gated and the
+// ownership join lives in the data function's query, so a lecture id alone
+// grants nothing; a lecture in someone else's course is indistinguishable from
+// an unknown id. The wording is the professor's: nothing here writes or
+// translates it.
+
+function describeProblems(problems: ComprehensionProblem[]): string {
+  return problems.map((p) => (p.slot ? `Question ${p.slot}: ${p.message}` : p.message)).join(" ");
+}
+
+function editResultToState(result: ComprehensionEditResult, success: string): ActionState {
+  if (!result.ok) {
+    return result.reason === "not_found"
+      ? { error: NOT_FOUND }
+      : { error: `The comprehension question isn't complete. ${describeProblems(result.problems)}` };
+  }
+  revalidatePath(`/professor/courses/${result.courseId}`);
+  return { success };
+}
+
+/** Set or edit the wording, options and key of both slots. Drafts may be incomplete. */
+export async function saveLectureComprehension(
+  lectureId: string,
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const user = await assertRole("professor", "admin");
+  const id = uuidSchema.safeParse(lectureId);
+  if (!id.success) return { error: NOT_FOUND };
+  const parsed = parseFormData(comprehensionFormSchema, formData);
+  if (!parsed.ok) return parsed.state;
+
+  const first = normalizeSlot(1, parsed.data.slots[0]);
+  if (!first.ok) return { error: first.error };
+  const second = normalizeSlot(2, parsed.data.slots[1]);
+  if (!second.ok) return { error: second.error };
+
+  const result = await saveOwnedComprehension(id.data, user, [first.value, second.value]);
+  return editResultToState(result, "Comprehension question saved.");
+}
+
+/** Turn the question on. Refused unless it is complete in both languages. */
+export async function enableLectureComprehension(lectureId: string): Promise<ActionState> {
+  const user = await assertRole("professor", "admin");
+  const id = uuidSchema.safeParse(lectureId);
+  if (!id.success) return { error: NOT_FOUND };
+  return editResultToState(await setOwnedComprehensionEnabled(id.data, user, true), "Comprehension question turned on.");
+}
+
+/** Turn the question off. The written question is kept, so turning it back on loses nothing. */
+export async function disableLectureComprehension(lectureId: string): Promise<ActionState> {
+  const user = await assertRole("professor", "admin");
+  const id = uuidSchema.safeParse(lectureId);
+  if (!id.success) return { error: NOT_FOUND };
+  return editResultToState(await setOwnedComprehensionEnabled(id.data, user, false), "Comprehension question turned off.");
 }

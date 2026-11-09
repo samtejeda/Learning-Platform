@@ -18,6 +18,7 @@ export type Scope =
   | "resend_confirmation"
   | "invite"
   | "lecture_progress"
+  | "lecture_comprehension"
   | "course_file"
   | "exam_attempt"
   | "exam_autosave";
@@ -70,6 +71,12 @@ export const RATE_LIMITS: Record<Scope, Policy> = {
   lecture_progress: {
     perIp: { limit: 300, windowSeconds: MIN },
     perIdentifier: { limit: 60, windowSeconds: MIN },
+  },
+  // Answering the end-of-lecture comprehension question: at most two counted
+  // attempts per lecture, so this only stops a runaway client or probing.
+  lecture_comprehension: {
+    perIp: { limit: 300, windowSeconds: MIN },
+    perIdentifier: { limit: 30, windowSeconds: MIN },
   },
   // Signed URL for a syllabus PDF or a course material file — one fetch per
   // open, not a continuous ping like lecture_progress, so a lower ceiling

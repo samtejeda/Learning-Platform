@@ -4,6 +4,7 @@ import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { courses, lectureProgress, lectures } from "@/lib/db/schema";
 import type { Actor } from "./courses";
+import { comprehensionAllowsPublish } from "./lecture-comprehension";
 
 // Lecture reads and writes. Student functions require enrollment AND
 // publication in the query; professor functions either run after
@@ -18,6 +19,8 @@ export type ProfessorLecture = {
   order: number;
   durationSeconds: number | null;
   status: LectureStatus;
+  /** Whether the end-of-lecture question is switched on (the written question is kept when off). */
+  comprehensionEnabled: boolean;
 };
 
 export type StudentLecture = {
@@ -48,6 +51,7 @@ export async function listLecturesForProfessor(courseId: string): Promise<Profes
       durationSeconds: lectures.durationSeconds,
       videoUploadedAt: lectures.videoUploadedAt,
       publishedAt: lectures.publishedAt,
+      comprehensionEnabled: lectures.comprehensionEnabled,
     })
     .from(lectures)
     .where(eq(lectures.courseId, courseId))
@@ -165,14 +169,30 @@ export async function markLectureUploaded(lectureId: string, durationSeconds: nu
     .where(eq(lectures.id, lectureId));
 }
 
-/** Publish only if the video is actually uploaded; returns false otherwise. */
+/**
+ * Publish only if the video is actually uploaded AND, when the comprehension
+ * question is enabled, that question is complete in both languages (re-checked
+ * here under a row lock, not just in the action); returns false otherwise.
+ */
 export async function setLecturePublished(lectureId: string, published: boolean): Promise<boolean> {
-  const rows = await db
-    .update(lectures)
-    .set({ publishedAt: published ? new Date() : null, updatedAt: new Date() })
-    .where(published ? and(eq(lectures.id, lectureId), isNotNull(lectures.videoUploadedAt)) : eq(lectures.id, lectureId))
-    .returning({ id: lectures.id });
-  return rows.length > 0;
+  if (!published) {
+    const rows = await db
+      .update(lectures)
+      .set({ publishedAt: null, updatedAt: new Date() })
+      .where(eq(lectures.id, lectureId))
+      .returning({ id: lectures.id });
+    return rows.length > 0;
+  }
+  return db.transaction(async (tx) => {
+    await tx.select({ id: lectures.id }).from(lectures).where(eq(lectures.id, lectureId)).for("update");
+    if (!(await comprehensionAllowsPublish(tx, lectureId))) return false;
+    const rows = await tx
+      .update(lectures)
+      .set({ publishedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(lectures.id, lectureId), isNotNull(lectures.videoUploadedAt)))
+      .returning({ id: lectures.id });
+    return rows.length > 0;
+  });
 }
 
 export async function updateLectureRow(

@@ -71,6 +71,13 @@
       "when": 1791381751454,
       "tag": "0009_natural_beast",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794238927417,
+      "tag": "0010_low_sleeper",
+      "breakpoints": true
     }
   ]
 }

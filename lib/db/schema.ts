@@ -161,10 +161,18 @@ export const lectures = pgTable(
     // Percentage (0–100) of video that must be watched to mark complete.
     // Default is 95 per spec.
     completionThreshold: real("completion_threshold").notNull().default(95),
-    // Optional end-of-lecture comprehension question
+    // DEPRECATED (superseded 2026-11-09 by comprehension_enabled +
+    // lecture_comprehension_questions below). Single-language, never read or
+    // written by the app, and empty in every deployment. Dropped in a later
+    // migration so this deploy stays backward-compatible with the previous one.
     comprehensionQuestion: text("comprehension_question"),
-    comprehensionOptions: jsonb("comprehension_options"), // string[] for MC, null otherwise
+    comprehensionOptions: jsonb("comprehension_options"),
     comprehensionAnswer: text("comprehension_answer"),
+    // Optional end-of-lecture comprehension question, per lecture (Sam,
+    // 2026-11-06). The professor's on/off toggle only flips this flag: turning
+    // it off keeps the written questions. While true the questions must be
+    // complete in both languages (lib/lectures/comprehension.ts).
+    comprehensionEnabled: boolean("comprehension_enabled").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -173,6 +181,79 @@ export const lectures = pgTable(
       .defaultNow(),
   },
   (t) => [index("lectures_course_order_idx").on(t.courseId, t.order)]
+).enableRLS();
+
+// ─── Lecture comprehension questions ──────────────────────────────────────────
+// Up to two multiple-choice questions per lecture: slot 1 is required once the
+// question is enabled, slot 2 is optional (asked on the second attempt).
+// Bilingual like exams; drafts may be incomplete. `correct_option` is the key BY
+// POSITION and is PROFESSOR-ONLY: only lib/data/lecture-comprehension.ts reads
+// it (for the owner DTO), and it compares answers inside SQL so it never
+// reaches a student DTO or an API response. Wording is professor-authored;
+// agents never write or translate it.
+
+export const lectureComprehensionQuestions = pgTable(
+  "lecture_comprehension_questions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    lectureId: uuid("lecture_id")
+      .notNull()
+      .references(() => lectures.id, { onDelete: "cascade" }),
+    slot: integer("slot").notNull(),
+    promptEs: text("prompt_es"),
+    promptEn: text("prompt_en"),
+    optionsEs: jsonb("options_es"), // string[]
+    optionsEn: jsonb("options_en"), // string[]
+    correctOption: integer("correct_option"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("lecture_comprehension_questions_lecture_slot_idx").on(t.lectureId, t.slot),
+    check("lecture_comprehension_questions_slot_range", sql`${t.slot} between 1 and 2`),
+    check(
+      "lecture_comprehension_questions_correct_option_range",
+      sql`${t.correctOption} is null or ${t.correctOption} between 0 and 5`,
+    ),
+  ]
+).enableRLS();
+
+// ─── Lecture comprehension attempts ───────────────────────────────────────────
+// Student activity data (some students may be minors), so deliberately minimal
+// (Sam approved this set, 2026-11-09): who, which lecture, which attempt, which
+// question slot, right/wrong, when. NOT the option the student chose and no
+// free text. At most two attempts per student per lecture, enforced by the
+// unique index (a double submit cannot create a third). Cascades with the
+// student and the lecture.
+
+export const lectureComprehensionAttempts = pgTable(
+  "lecture_comprehension_attempts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    studentId: uuid("student_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    lectureId: uuid("lecture_id")
+      .notNull()
+      .references(() => lectures.id, { onDelete: "cascade" }),
+    attemptNumber: integer("attempt_number").notNull(),
+    questionSlot: integer("question_slot").notNull(),
+    correct: boolean("correct").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("lecture_comprehension_attempts_student_lecture_attempt_idx").on(
+      t.studentId,
+      t.lectureId,
+      t.attemptNumber,
+    ),
+    index("lecture_comprehension_attempts_lecture_idx").on(t.lectureId),
+    check("lecture_comprehension_attempts_attempt_range", sql`${t.attemptNumber} between 1 and 2`),
+    check("lecture_comprehension_attempts_slot_range", sql`${t.questionSlot} between 1 and 2`),
+  ]
 ).enableRLS();
 
 // ─── Course Materials ─────────────────────────────────────────────────────────
