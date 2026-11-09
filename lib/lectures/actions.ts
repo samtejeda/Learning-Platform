@@ -225,7 +225,7 @@ export async function finalizeLectureUpload(lectureId: string, input: unknown): 
 export async function publishLecture(lectureId: string): Promise<ActionState> {
   const lecture = await ownedLectureOrNull(lectureId);
   if (!lecture) return { error: NOT_FOUND };
-  if (!lecture.videoUploadedAt) return { error: "Add a video before publishing." };
+  if (!lecture.videoUploadedAt) return { error: "Upload a video before publishing." };
   // An enabled comprehension question must be complete in both languages
   // (re-checked under a lock inside setLecturePublished).
   const problems = await comprehensionPublishProblems(lecture.id);
