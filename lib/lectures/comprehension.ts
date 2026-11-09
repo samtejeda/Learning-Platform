@@ -142,3 +142,62 @@ export function deriveComprehensionState(
     nextAttempt: (used + 1) as 1 | 2,
   };
 }
+
+// ─── Saving a draft ───────────────────────────────────────────────────────────
+
+/** What the professor typed for one slot (already trimmed/parsed by zod). */
+export type ComprehensionSlotInput = {
+  promptEs: string | null;
+  promptEn: string | null;
+  optionsEs: string[];
+  optionsEn: string[];
+  correctOption: number | null;
+};
+
+export type NormalizedSlot =
+  | { kind: "blank" }
+  | {
+      kind: "question";
+      columns: {
+        promptEs: string | null;
+        promptEn: string | null;
+        optionsEs: string[] | null;
+        optionsEn: string[] | null;
+        correctOption: number | null;
+      };
+    };
+
+/**
+ * Shape one slot for storage. Drafts may be incomplete, but the structural
+ * rules that protect the positional key always hold: both languages list the
+ * same number of options (when both are filled in), and a key must point at an
+ * option that exists. A fully empty slot is "blank" (the row is removed).
+ * Completeness (3–6 options, both languages, a key) is the enabled gate's job.
+ */
+export function normalizeSlot(slot: number, f: ComprehensionSlotInput): { ok: true; value: NormalizedSlot } | { ok: false; error: string } {
+  if (isBlankQuestion(f)) return { ok: true, value: { kind: "blank" } };
+  const where = `Question ${slot}`;
+  if (f.optionsEs.length > 0 && f.optionsEn.length > 0 && f.optionsEs.length !== f.optionsEn.length) {
+    return { ok: false, error: `${where}: Spanish and English need the same number of options, so the correct answer is the same option in both.` };
+  }
+  if (f.correctOption !== null) {
+    const lists = [f.optionsEs, f.optionsEn].filter((l) => l.length > 0);
+    if (lists.length === 0) return { ok: false, error: `${where}: add the options before choosing the correct answer.` };
+    if (lists.some((l) => f.correctOption! >= l.length)) {
+      return { ok: false, error: `${where}: the correct answer must be one of the options.` };
+    }
+  }
+  return {
+    ok: true,
+    value: {
+      kind: "question",
+      columns: {
+        promptEs: f.promptEs,
+        promptEn: f.promptEn,
+        optionsEs: f.optionsEs.length > 0 ? f.optionsEs : null,
+        optionsEn: f.optionsEn.length > 0 ? f.optionsEn : null,
+        correctOption: f.correctOption,
+      },
+    },
+  };
+}

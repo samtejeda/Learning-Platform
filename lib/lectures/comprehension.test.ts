@@ -116,3 +116,34 @@ describe("deriveComprehensionState", () => {
     ).toEqual({ status: "blocked", attemptsUsed: 2, attemptsRemaining: 0, nextAttempt: null });
   });
 });
+
+import { normalizeSlot } from "./comprehension";
+
+describe("normalizeSlot (saving drafts)", () => {
+  const input = (over = {}) => ({
+    promptEs: "Question 1 (es)", promptEn: "Question 1 (en)",
+    optionsEs: ["A", "B", "C"], optionsEn: ["A", "B", "C"], correctOption: 2 as number | null, ...over,
+  });
+  it("treats an empty slot as blank", () => {
+    expect(normalizeSlot(2, { promptEs: null, promptEn: null, optionsEs: [], optionsEn: [], correctOption: null })).toEqual({
+      ok: true, value: { kind: "blank" },
+    });
+  });
+  it("accepts an incomplete draft (one language, no key)", () => {
+    const r = normalizeSlot(1, input({ promptEn: null, optionsEn: [], correctOption: null }));
+    expect(r.ok).toBe(true);
+    if (r.ok && r.value.kind === "question") {
+      expect(r.value.columns.optionsEn).toBeNull();
+      expect(r.value.columns.optionsEs).toEqual(["A", "B", "C"]);
+    }
+  });
+  it("rejects different option counts between languages", () => {
+    const r = normalizeSlot(1, input({ optionsEn: ["A", "B", "C", "D"] }));
+    expect(r.ok).toBe(false);
+  });
+  it("rejects a key outside the options, or a key with no options", () => {
+    expect(normalizeSlot(1, input({ correctOption: 3 })).ok).toBe(false);
+    expect(normalizeSlot(1, input({ optionsEs: [], optionsEn: [], correctOption: 0 })).ok).toBe(false);
+    expect(normalizeSlot(1, input({ correctOption: 0 })).ok).toBe(true);
+  });
+});
