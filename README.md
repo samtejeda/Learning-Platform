@@ -34,7 +34,7 @@ Read this before you commit to a deployment. Anything in the "not built" list is
 - Accounts: email + password sign-up and sign-in, password reset by email link, three roles (student, professor, admin), all permission checks on the server.
 - Phone-number sign-in by SMS code **for accounts that already have a phone number on file** (see the caveat in the Twilio row below).
 - Courses, and enrollment **by professor invitation** (by email). There are no join codes and no open self-enrollment. Anyone can create an account; being enrolled is what gives access to a course.
-- Lectures: professor uploads a video file straight to private storage; students stream it through short-lived signed URLs in a custom player with no native controls. A lecture counts as complete only when the server has seen at least 95% genuinely watched.
+- Lectures: a professor either uploads a video file straight to private storage or (per lecture) embeds a YouTube video, see the services table; uploaded files are streamed by students through short-lived signed URLs in a custom player with no native controls. A lecture counts as complete only when the server has seen at least 95% genuinely watched.
 - Syllabus (one PDF per course), course materials (uploaded files or external links, with a draft/publish step).
 - Exams: multiple choice, true/false (both auto-scored), fill in the blank and short essay (graded by hand), per-exam attempts and time limits, English and Spanish wording on every exam.
 - Operations: encrypted nightly database backups with an automated restore test, error tracking, a health endpoint, rate limiting on sign-in, a CI pipeline, and a runbook.
@@ -47,7 +47,7 @@ Read this before you commit to a deployment. Anything in the "not built" list is
 | **Assignments** | Database tables exist; there are no routes or screens. |
 | **Forum** | Database tables exist; there are no routes or screens. |
 | **Stripe course purchases** | Not built. Courses can only be reached by invitation. |
-| **YouTube-embedded lectures** | Not built. Lectures are uploaded video files only. |
+| **YouTube-embedded lectures** | Backend built; the screens are not. A lecture can be an uploaded file or an embedded YouTube video, chosen per lecture, but there is no form to add a YouTube lecture and the student player cannot play one yet. See the YouTube row in the services table below. |
 | **Lecture comprehension question** | Not built. Some database columns and a student component exist, but nothing renders it and there is no authoring screen. |
 | **Attaching a phone number to an account in the app** | Not built, so phone sign-in only works for accounts whose phone was set some other way. |
 | **Student language setting** | Not built. Exam content is bilingual; the interface text is English. |
@@ -71,7 +71,7 @@ Each organization creates these on its **own** accounts. Free-tier figures come 
 | **Sentry** | Error tracking (`@sentry/nextjs`). Configured to send no personal data and no session replay. | **OPTIONAL** | Free Developer plan. New organizations start with a short trial of paid features, then drop to free automatically; note the trial end date so a "plan ending" email is not a surprise. | Nothing visible to users. With no DSN every Sentry call is a no-op; you only lose error history and alerts. |
 | **UptimeRobot** (or any uptime monitor) | Pings `/api/health` every few minutes and emails you when the site or database is down. | **OPTIONAL** | Free plan with 5-minute checks (what the runbook assumes). Check the current limits. | Nobody is told when the site is down. |
 | **Stripe** | Would take payment for courses. | **NOT BUILT YET** | n/a | There is no payment feature. Do not create a Stripe account for this project yet. |
-| **YouTube** (embedded lectures) | Would let a lecture be a YouTube embed instead of an uploaded file. | **NOT BUILT YET** | n/a | There is no embed option. Lectures are uploaded files only. |
+| **YouTube** (embedded lectures) | Lets a lecture be an embedded YouTube video instead of an uploaded file. Chosen per lecture, so a course can mix both. Students' browsers load Google's player (the privacy-enhanced `youtube-nocookie.com` host) and Google's player script. | **OPTIONAL**, per lecture. No account, key or setting is needed, and nothing is configured on the server. | Free. Subject to YouTube's terms: the player cannot be covered or modified, and ads or related videos may appear in it. | Uploaded lectures are unaffected. If you never create a YouTube lecture, nothing is loaded from Google. **Limits to know before using it:** an unlisted YouTube video can be watched by anyone who has its link, so do not use it for content that must stay paid-only or enrolled-only. Watch-tracking is weaker than for uploaded lectures (the player cannot be locked, and a viewer can change speed), so completion is less trustworthy. Your privacy policy must mention YouTube, and if your students are children you must also tell YouTube the content is made for kids. The backend is built; the professor form and student player are not yet. |
 
 Cost-control notes that apply across services: set billing alerts on Vercel, Supabase, Twilio and Sentry once on a paid plan, and prefer alert-only budgets over auto-pause, since auto-pause on a live student site becomes an outage.
 
