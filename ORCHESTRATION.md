@@ -43,12 +43,7 @@ npx getdesign@latest add claude
 ```
 Run this from the project root — it drops `DESIGN.md` in. Then tell Claude Code explicitly: *"Follow DESIGN.md as the design system for all UI work."* Sanity-check the result against `design/preview.html` (light and dark) before wiring real components to it.
 
-**Secondary reference — Airtable's, for structure only:** for data-dense screens (course/lesson management, rosters, professor and admin views), pull Airtable's DESIGN.md as a *second, non-authoritative* file — don't let it overwrite the primary one, since two full palettes/type systems fighting for the same UI is how you get an incoherent result:
-```
-npx getdesign@latest add airtable
-mv DESIGN.md design/DESIGN-airtable-reference.md
-```
-Then instruct Claude Code: *"For course-management and admin screens, additionally reference design/DESIGN-airtable-reference.md for table, tag, and card component conventions — but keep all colors and typography from the primary DESIGN.md."*
+**Secondary reference (Airtable's) — removed 2026-11-09.** It was a structure-only reference for data-dense screens and is no longer used or needed.
 
 **On Binance:** worth naming honestly — its actual identity is "bold yellow on monochrome, trading-floor urgency," which doesn't suit devotional/educational content. What's genuinely appealing there is probably data-dense dashboard *clarity* for a student progress view, not the crypto-trading register. Get that from layout discipline (clear hierarchy, tight data density) within the Claude palette rather than importing Binance's system — adding a third full identity is a good way to end up with a UI that looks like three different products stitched together.
 

@@ -22,9 +22,6 @@ Re-check against this file regularly, not just once — re-run the full checklis
 whenever you finish a chunk of frontend work, not only the first time you touch
 this domain.
 
-Also follow DESIGN.md (once it exists — see ORCHESTRATION.md) for all UI work, and
-design/DESIGN-airtable-reference.md for table/tag/card conventions specifically on
-course-management and admin screens, without pulling its colors or type over
-DESIGN.md's.
+Also follow DESIGN.md (see design/README.md) for all UI work.
 
 Mobile-first: design and test mobile layouts first, per CLAUDE.md.
