@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useId } from "react";
+import { useActionState, useEffect, useId, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { ActionState } from "@/lib/validation/form";
 import { COMPREHENSION_MIN_OPTIONS, OPTION_MAX_LENGTH, PROMPT_MAX_LENGTH } from "@/lib/lectures/comprehension";
@@ -45,7 +45,9 @@ export function AuthoringForm({
 }) {
   const uid = useId();
   const router = useRouter();
-  const [state, formAction, pending] = useActionState<ActionState, FormData>(action, null);
+  const [state, formAction, actionPending] = useActionState<ActionState, FormData>(action, null);
+  const [transitioning, startTransition] = useTransition();
+  const pending = actionPending || transitioning;
   const blockers = saveBlockers(draft);
   const fields = toFormFields(draft);
   const fieldMessages = Object.values(state?.fieldErrors ?? {}).flat();
@@ -60,9 +62,13 @@ export function AuthoringForm({
 
   return (
     <form
-      action={formAction}
+      // Submitted through a transition rather than <form action>: React 19 resets a form after its
+      // action finishes, which would visually clear the controlled "Correct answer" radios.
       onSubmit={(e) => {
-        if (blockers.length > 0) e.preventDefault();
+        e.preventDefault();
+        if (blockers.length > 0) return;
+        const data = new FormData(e.currentTarget);
+        startTransition(() => formAction(data));
       }}
       noValidate
       className="space-y-6"

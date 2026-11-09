@@ -36,6 +36,7 @@ export function ComprehensionPreview({
         </div>
         <div className="w-full sm:w-48">
           <SegmentedRadio
+            tall
             legend="Preview language"
             name={`${uid}-lang`}
             value={lang}

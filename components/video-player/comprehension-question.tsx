@@ -93,6 +93,7 @@ export function ComprehensionQuestion({
         {state.question && (
           <div className="w-full sm:w-48">
             <SegmentedRadio
+              tall
               legend="Language"
               name={`${uid}-lang`}
               value={language}
@@ -126,7 +127,7 @@ export function ComprehensionQuestion({
           <Alert tone="warning">
             <p className="flex items-center gap-2 font-medium">
               <WarnIcon />
-              Not quite. {attemptsLeftText(state.attemptsRemaining)} Read the next question carefully.
+              Not quite. {attemptsLeftText(state.attemptsRemaining)}
             </p>
           </Alert>
         )}
