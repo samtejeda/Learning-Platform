@@ -26,18 +26,31 @@ const sentryOrigin = originOf(process.env.NEXT_PUBLIC_SENTRY_DSN);
 // Lecture video may be served by the CDN Worker (VIDEO_CDN_URL); empty when unset.
 const videoCdnOrigin = originOf(process.env.VIDEO_CDN_URL);
 
+// YouTube lectures (decided per lecture, API.md): the official IFrame Player
+// API script loads from www.youtube.com, and the player itself is framed from
+// the privacy-enhanced host. The frontend MUST pass `host:
+// "https://www.youtube-nocookie.com"` to YT.Player; without it the API frames
+// www.youtube.com instead (not privacy-enhanced, and blocked by this policy).
+// Verified in headless Chromium against an ENFORCED policy: exactly these two
+// origins, no violations, and removing either one breaks the player. Nothing
+// else is broadened. Keep the strict-origin-when-cross-origin Referrer-Policy
+// below: YouTube requires the Referer to be sent.
+const youtubeScriptOrigin = "https://www.youtube.com";
+const youtubeEmbedOrigin = "https://www.youtube-nocookie.com";
+
 // Content-Security-Policy. Shipped as Report-Only first: Next.js inlines
 // scripts and styles, so an enforced policy without per-request nonces would
 // break hydration. Enforce (and add nonces via proxy.ts) in the hardening
 // phase once the video player's origins are settled.
 const csp = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
+  `script-src 'self' 'unsafe-inline' ${youtubeScriptOrigin}${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
   `img-src 'self' data: blob: ${supabaseOrigin}`.trim(),
   `media-src 'self' blob: ${supabaseOrigin} ${videoCdnOrigin}`.trim(),
   `connect-src 'self' ${supabaseOrigin} ${supabaseWs} ${sentryOrigin}`.trim(),
   "font-src 'self' data:",
+  `frame-src ${youtubeEmbedOrigin}`,
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
@@ -54,7 +67,8 @@ const securityHeaders = [
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   {
     key: "Permissions-Policy",
-    value: "camera=(), microphone=(), geolocation=(), payment=(), usb=(), fullscreen=(self)",
+    // fullscreen is delegated to the YouTube embed so its fullscreen button works.
+    value: `camera=(), microphone=(), geolocation=(), payment=(), usb=(), fullscreen=(self "${youtubeEmbedOrigin}")`,
   },
   { key: "Content-Security-Policy-Report-Only", value: csp },
 ];
