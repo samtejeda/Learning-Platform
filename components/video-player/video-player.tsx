@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { CompletionBanner } from "./completion-banner";
 import { useLectureProgress } from "./use-lecture-progress";
+import { useRefreshOnComplete } from "./use-refresh-on-complete";
 import { useStreamUrl } from "./use-stream-url";
 
 type Props = {
@@ -59,6 +60,7 @@ export function VideoPlayer({ lectureId, title, durationSeconds, tracksProgress,
   const stream = useStreamUrl(lectureId);
   const progress = useLectureProgress({ lectureId, tracksProgress, initial: initialProgress });
   const unlocked = !tracksProgress || progress.completed;
+  useRefreshOnComplete(progress.completed, tracksProgress);
 
   const showNotice = useCallback((text: string) => {
     setNotice(text);
