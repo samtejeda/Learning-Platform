@@ -1966,7 +1966,7 @@
       "checkConstraints": {
         "lectures_video_source_check": {
           "name": "lectures_video_source_check",
-          "value": "(\n        \"lectures\".\"video_source\" = 'upload'\n        AND \"lectures\".\"youtube_video_id\" IS NULL\n        AND \"lectures\".\"video_storage_path\" IS NOT NULL\n      ) OR (\n        \"lectures\".\"video_source\" = 'youtube'\n        AND \"lectures\".\"youtube_video_id\" ~ '^[A-Za-z0-9_-]{11}$'\n        AND \"lectures\".\"video_storage_path\" IS NULL\n        AND \"lectures\".\"duration_seconds\" >= 1\n        AND \"lectures\".\"video_uploaded_at\" IS NOT NULL\n      )"
+          "value": "(\n        \"lectures\".\"video_source\" = 'upload'\n        AND \"lectures\".\"youtube_video_id\" IS NULL\n        AND \"lectures\".\"video_storage_path\" IS NOT NULL\n      ) OR (\n        \"lectures\".\"video_source\" = 'youtube'\n        AND \"lectures\".\"youtube_video_id\" IS NOT NULL\n        AND \"lectures\".\"youtube_video_id\" ~ '^[A-Za-z0-9_-]{11}$'\n        AND \"lectures\".\"video_storage_path\" IS NULL\n        AND \"lectures\".\"duration_seconds\" IS NOT NULL\n        AND \"lectures\".\"duration_seconds\" >= 1\n        AND \"lectures\".\"video_uploaded_at\" IS NOT NULL\n      )"
         }
       },
       "isRLSEnabled": true

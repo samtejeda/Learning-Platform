@@ -8,8 +8,10 @@ ALTER TABLE "lectures" ADD CONSTRAINT "lectures_video_source_check" CHECK ((
         AND "lectures"."video_storage_path" IS NOT NULL
       ) OR (
         "lectures"."video_source" = 'youtube'
+        AND "lectures"."youtube_video_id" IS NOT NULL
         AND "lectures"."youtube_video_id" ~ '^[A-Za-z0-9_-]{11}$'
         AND "lectures"."video_storage_path" IS NULL
+        AND "lectures"."duration_seconds" IS NOT NULL
         AND "lectures"."duration_seconds" >= 1
         AND "lectures"."video_uploaded_at" IS NOT NULL
       ));

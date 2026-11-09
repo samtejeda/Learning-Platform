@@ -196,6 +196,8 @@ export const lectures = pgTable(
     index("lectures_course_order_idx").on(t.courseId, t.order),
     // Exactly the right fields for each source. A YouTube row must already have
     // its trusted duration (professor-supplied) and "video ready" timestamp.
+    // The explicit IS NOT NULL terms matter: `NULL ~ re` and `NULL >= 1` are
+    // NULL, and a CHECK passes on NULL.
     check(
       "lectures_video_source_check",
       sql`(
@@ -204,8 +206,10 @@ export const lectures = pgTable(
         AND ${t.videoStoragePath} IS NOT NULL
       ) OR (
         ${t.videoSource} = 'youtube'
+        AND ${t.youtubeVideoId} IS NOT NULL
         AND ${t.youtubeVideoId} ~ '^[A-Za-z0-9_-]{11}$'
         AND ${t.videoStoragePath} IS NULL
+        AND ${t.durationSeconds} IS NOT NULL
         AND ${t.durationSeconds} >= 1
         AND ${t.videoUploadedAt} IS NOT NULL
       )`,
