@@ -68,6 +68,7 @@ export function LectureListManager({ courseId, lectures }: { courseId: string; l
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
                     <Badge tone={status.tone}>{status.label}</Badge>
                     {lecture.durationSeconds ? <span>{formatTime(lecture.durationSeconds)}</span> : null}
+                    <Badge tone={lecture.comprehensionEnabled ? "success" : "outline"}>{lecture.comprehensionEnabled ? "Question on" : "Question off"}</Badge>
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center" role="group" aria-label={`Reorder ${lecture.title}`}>
