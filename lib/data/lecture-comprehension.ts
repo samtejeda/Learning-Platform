@@ -380,7 +380,8 @@ export async function submitComprehensionAnswer(
   if (!access) return { ok: false, reason: "not_found" };
   if (!access.completed) return { ok: false, reason: "not_completed" };
 
-  const state = deriveComprehensionState(await studentAttempts(lectureId, studentId));
+  const attempts = await studentAttempts(lectureId, studentId);
+  const state = deriveComprehensionState(attempts);
   if (state.status === "passed") return { ok: false, reason: "already_passed" };
   if (state.status === "blocked" || !state.nextAttempt) return { ok: false, reason: "no_attempts_left" };
 
@@ -408,10 +409,7 @@ export async function submitComprehensionAnswer(
     .returning({ id: lectureComprehensionAttempts.id });
   if (inserted.length === 0) return { ok: false, reason: "conflict" };
 
-  const after = deriveComprehensionState([
-    ...(await studentAttempts(lectureId, studentId)).filter((a) => a.attemptNumber !== state.nextAttempt),
-    { attemptNumber: state.nextAttempt, correct },
-  ]);
+  const after = deriveComprehensionState([...attempts, { attemptNumber: state.nextAttempt, correct }]);
   const next = after.nextAttempt ? questionForNextAttempt(rows, after.nextAttempt) : undefined;
   return {
     ok: true,

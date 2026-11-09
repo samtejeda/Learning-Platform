@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { actAs } from "@/test/setup-integration";
 import { resetSeedData, SEED, seedUsers } from "@/test/seed";
 import { db } from "@/lib/db";
-import { lectureComprehensionAttempts, lectureProgress, lectures } from "@/lib/db/schema";
+import { lectureComprehensionAttempts, lectureProgress, lectures, rateLimitBuckets } from "@/lib/db/schema";
 import { insertCourse } from "@/lib/data/courses";
 import { inviteByEmail } from "@/lib/data/enrollments";
 import { insertLecture, listLecturesForProfessor, markLectureUploaded, setLecturePublished } from "@/lib/data/lectures";
@@ -18,7 +18,7 @@ import {
 } from "@/lib/lectures/actions";
 import { POST as comprehensionPOST } from "@/app/api/lectures/[lectureId]/comprehension/route";
 import { AuthError } from "@/lib/auth/session";
-import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
+import { bucketKey, RATE_LIMITS } from "@/lib/rate-limit/policy";
 
 // The shared dev database is remote; each action is several round trips.
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
@@ -407,10 +407,14 @@ describe("comprehension question: student route", () => {
     // call must be refused before any lookup. student2 isn't enrolled, so
     // nothing else could be touched.
     actAs(SEED.student2.id);
-    const policy = RATE_LIMITS.lecture_comprehension.perIdentifier;
-    for (let i = 0; i < policy.limit; i++) {
-      await checkRateLimit({ scope: "lecture_comprehension", kind: "id", subject: SEED.student2.id, window: policy });
-    }
+    // One write sets the counter at the allowance (a loop of checks over a slow
+    // remote DB could outlast the 60 s window and reset it mid-way).
+    const key = bucketKey("lecture_comprehension", "id", SEED.student2.id);
+    const limit = RATE_LIMITS.lecture_comprehension.perIdentifier.limit;
+    await db
+      .insert(rateLimitBuckets)
+      .values({ key, count: limit, windowStart: sql`now()` })
+      .onConflictDoUpdate({ target: rateLimitBuckets.key, set: { count: limit, windowStart: sql`now()` } });
     const res = await answer(twoQ, { selectedOption: 0 });
     expect(res.status).toBe(429);
     expect((await res.json()).error.code).toBe("rate_limited");
