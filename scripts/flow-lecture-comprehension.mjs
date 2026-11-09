@@ -346,7 +346,10 @@ check((await region().innerText()).includes("You've used both attempts on this q
 const allowed = new Set(["correct", "status", "attemptsRemaining", "nextQuestion", "es", "en", "prompt", "options"]);
 const keysOf = (v, out = new Set()) => {
   if (Array.isArray(v)) v.forEach((x) => keysOf(x, out));
-  else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) (out.add(k), keysOf(x, out));
+  else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) {
+      out.add(k);
+      keysOf(x, out);
+    }
   return out;
 };
 const bodies = responses.filter((r) => r.status === 200).map((r) => JSON.parse(r.body));
