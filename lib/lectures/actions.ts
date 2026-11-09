@@ -16,6 +16,7 @@ import {
   deleteLectureRow,
   getOwnedLecture,
   insertLecture,
+  insertYoutubeLecture,
   markLectureUploaded,
   reorderCourseLectures,
   setLecturePublished,
@@ -38,9 +39,10 @@ import { comprehensionFormSchema } from "@/lib/validation/lecture-comprehension"
 import { parseFormData, parseObject, type ActionState } from "@/lib/validation/form";
 import {
   createLectureSchema,
+  createYoutubeLectureSchema,
   finalizeLectureSchema,
-  lectureFormSchema,
   reorderLecturesSchema,
+  updateLectureSchema,
   uuidSchema,
 } from "@/lib/validation/lectures";
 
@@ -99,10 +101,49 @@ export async function createLecture(courseId: string, input: unknown): Promise<U
   }
 }
 
+export type YoutubeLectureResult =
+  | { ok: true; lectureId: string }
+  | { ok: false; error: string; fieldErrors?: Record<string, string[]> };
+
+const NO_UPLOAD_FOR_YOUTUBE = "This lecture uses a YouTube video, so there is nothing to upload.";
+
+/**
+ * Create a lecture whose video is an embedded YouTube video (a draft). Only the
+ * 11-character id is stored; the server never fetches the link. The duration is
+ * supplied by the professor (read from the player in their browser, or typed)
+ * and is the trusted completion denominator.
+ */
+export async function createYoutubeLecture(courseId: string, input: unknown): Promise<YoutubeLectureResult> {
+  const user = await assertRole("professor", "admin");
+
+  const cid = uuidSchema.safeParse(courseId);
+  if (!cid.success) return { ok: false, error: "Course not found." };
+  const parsed = parseObject(createYoutubeLectureSchema, (input ?? {}) as Record<string, unknown>);
+  if (!parsed.ok) return { ok: false, error: parsed.state.error!, fieldErrors: parsed.state.fieldErrors };
+
+  const owned = await findOwnedCourse(cid.data, user);
+  if (!owned) return { ok: false, error: "Course not found." };
+
+  const lectureId = randomUUID();
+  await insertYoutubeLecture({
+    id: lectureId,
+    courseId: owned.id,
+    title: parsed.data.title,
+    description: parsed.data.description,
+    youtubeVideoId: parsed.data.youtubeUrl,
+    durationSeconds: parsed.data.durationSeconds,
+  });
+  revalidatePath(`/professor/courses/${owned.id}`);
+  return { ok: true, lectureId };
+}
+
 /** Re-issue an upload token for a lecture whose upload never completed. */
 export async function retryLectureUpload(lectureId: string): Promise<UploadTicket> {
   const lecture = await ownedLectureOrNull(lectureId);
   if (!lecture) return { ok: false, error: NOT_FOUND };
+  if (lecture.videoSource === "youtube" || !lecture.videoStoragePath) {
+    return { ok: false, error: NO_UPLOAD_FOR_YOUTUBE };
+  }
   if (lecture.videoUploadedAt) return { ok: false, error: "This lecture already has a video." };
   try {
     const { token } = await createLectureUploadUrl(lecture.videoStoragePath);
@@ -117,13 +158,15 @@ export async function retryLectureUpload(lectureId: string): Promise<UploadTicke
 export async function finalizeLectureUpload(lectureId: string, input: unknown): Promise<ActionState> {
   const lecture = await ownedLectureOrNull(lectureId);
   if (!lecture) return { error: NOT_FOUND };
+  if (lecture.videoSource === "youtube" || !lecture.videoStoragePath) return { error: NO_UPLOAD_FOR_YOUTUBE };
+  const storagePath = lecture.videoStoragePath;
 
   const parsed = parseObject(finalizeLectureSchema, (input ?? {}) as Record<string, unknown>);
   if (!parsed.ok) return parsed.state;
 
   let info;
   try {
-    info = await getObjectInfo(lecture.videoStoragePath);
+    info = await getObjectInfo(storagePath);
   } catch (err) {
     if (!(err instanceof StorageError)) throw err;
     return { error: "We couldn't verify the upload. Please try again." };
@@ -131,7 +174,7 @@ export async function finalizeLectureUpload(lectureId: string, input: unknown): 
   if (!info) return { error: "The video hasn't finished uploading yet." };
   if (!isLectureMimeType(info.contentType ?? "")) {
     // Something other than an allowlisted video ended up at the path; refuse it.
-    await removeObjects([lecture.videoStoragePath]).catch(() => {});
+    await removeObjects([storagePath]).catch(() => {});
     return { error: "That file isn't a supported video." };
   }
 
@@ -139,7 +182,7 @@ export async function finalizeLectureUpload(lectureId: string, input: unknown): 
   // browser. The probed duration replaces the client-reported one.
   let head: Uint8Array | null;
   try {
-    head = await readLectureHead(lecture.videoStoragePath);
+    head = await readLectureHead(storagePath);
   } catch (err) {
     if (!(err instanceof StorageError)) throw err;
     return { error: "We couldn't verify the upload. Please try again." };
@@ -148,7 +191,7 @@ export async function finalizeLectureUpload(lectureId: string, input: unknown): 
 
   const probe = probeMp4(head, info.sizeBytes);
   if (!probe.ok) {
-    await removeObjects([lecture.videoStoragePath]).catch(() => {});
+    await removeObjects([storagePath]).catch(() => {});
     logger.info("lecture.upload_rejected", { reason: probe.reason });
     return {
       error:
@@ -159,7 +202,7 @@ export async function finalizeLectureUpload(lectureId: string, input: unknown): 
   }
   const verdict = evaluateEncode(probe.info);
   if (verdict.verdict === "reject") {
-    await removeObjects([lecture.videoStoragePath]).catch(() => {});
+    await removeObjects([storagePath]).catch(() => {});
     logger.info("lecture.upload_rejected", {
       reason: "encode_policy",
       bitrateMbps: Math.round(probe.info.bitrateBps / 1e5) / 10,
@@ -182,7 +225,7 @@ export async function finalizeLectureUpload(lectureId: string, input: unknown): 
 export async function publishLecture(lectureId: string): Promise<ActionState> {
   const lecture = await ownedLectureOrNull(lectureId);
   if (!lecture) return { error: NOT_FOUND };
-  if (!lecture.videoUploadedAt) return { error: "Upload a video before publishing." };
+  if (!lecture.videoUploadedAt) return { error: "Add a video before publishing." };
   // An enabled comprehension question must be complete in both languages
   // (re-checked under a lock inside setLecturePublished).
   const problems = await comprehensionPublishProblems(lecture.id);
@@ -211,9 +254,21 @@ export async function updateLecture(
 ): Promise<ActionState> {
   const lecture = await ownedLectureOrNull(lectureId);
   if (!lecture) return { error: NOT_FOUND };
-  const parsed = parseFormData(lectureFormSchema, formData);
+  const parsed = parseFormData(updateLectureSchema, formData);
   if (!parsed.ok) return parsed.state;
-  await updateLectureRow(lecture.id, parsed.data);
+  const { title, description, youtubeUrl, durationSeconds } = parsed.data;
+  const changesVideo = youtubeUrl !== undefined || durationSeconds !== undefined;
+  // The source is fixed at creation. Link and duration are editable on YouTube
+  // lectures only (an uploaded lecture's duration is probed from the file).
+  if (changesVideo && lecture.videoSource !== "youtube") {
+    return { error: "The video link and duration can only be changed on a YouTube lecture." };
+  }
+  const written = await updateLectureRow(lecture.id, {
+    title,
+    description,
+    ...(changesVideo ? { youtube: { videoId: youtubeUrl, durationSeconds } } : {}),
+  });
+  if (!written) return { error: NOT_FOUND };
   revalidatePath(`/professor/courses/${lecture.courseId}`);
   redirect(`/professor/courses/${lecture.courseId}`);
 }
@@ -239,10 +294,13 @@ export async function reorderLectures(courseId: string, input: unknown): Promise
 export async function deleteLecture(lectureId: string): Promise<ActionState> {
   const lecture = await ownedLectureOrNull(lectureId);
   if (!lecture) return { error: NOT_FOUND };
-  try {
-    await removeObjects([lecture.videoStoragePath]);
-  } catch (err) {
-    console.error("[lectures] orphaned object after delete", lecture.videoStoragePath, err);
+  // A YouTube lecture has no Storage object; skip Storage entirely.
+  if (lecture.videoStoragePath) {
+    try {
+      await removeObjects([lecture.videoStoragePath]);
+    } catch (err) {
+      console.error("[lectures] orphaned object after delete", lecture.videoStoragePath, err);
+    }
   }
   await deleteLectureRow(lecture.id);
   revalidatePath(`/professor/courses/${lecture.courseId}`);

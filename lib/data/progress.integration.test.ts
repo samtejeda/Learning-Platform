@@ -66,7 +66,7 @@ describe("stream + progress route handlers", () => {
     expect(ok.status).toBe(200);
     expect(ok.headers.get("cache-control")).toBe("no-store");
     const body = await ok.json();
-    expect(Object.keys(body).sort()).toEqual(["expiresAt", "url"]);
+    expect(Object.keys(body).sort()).toEqual(["expiresAt", "source", "url"]);
     expect(body.url).toContain(`lectures/${published}/video.mp4`);
     actAs(SEED.profA.id);
     expect((await stream(draft)).status).toBe(200);
