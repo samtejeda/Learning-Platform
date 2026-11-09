@@ -43,6 +43,10 @@ export const contentLanguageEnum = pgEnum("content_language", ["es", "en"]);
 
 export const materialKindEnum = pgEnum("material_kind", ["file", "link"]);
 
+// Where a lecture's video comes from (decided per lecture, Sam 2026-11-06):
+// a file in private Storage, or an embedded YouTube video.
+export const videoSourceEnum = pgEnum("video_source", ["upload", "youtube"]);
+
 // ─── Users ────────────────────────────────────────────────────────────────────
 // Mirrors Supabase Auth's auth.users table — this is the public profile table.
 // The id must match the Supabase Auth user id exactly. Rows are created and
@@ -149,12 +153,20 @@ export const lectures = pgTable(
       .references(() => courses.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
     description: text("description"),
+    videoSource: videoSourceEnum("video_source").notNull().default("upload"),
     // Supabase Storage path in the private `lectures` bucket — served via a
-    // short-lived signed URL at request time, never a public URL.
-    videoStoragePath: text("video_storage_path").notNull(),
+    // short-lived signed URL at request time, never a public URL. Null for
+    // YouTube lectures (see lectures_video_source_check).
+    videoStoragePath: text("video_storage_path"),
+    // The 11-character YouTube video id ONLY, never a URL (lib/video/youtube.ts
+    // parses what the professor pastes). Null for uploaded lectures.
+    youtubeVideoId: text("youtube_video_id"),
     // Set at finalize from the professor's browser (video metadata). Used as
     // the denominator for completion; students can't influence it.
     durationSeconds: real("duration_seconds"),
+    // "The video is ready". Set at finalize for uploads; for YouTube lectures it
+    // is set at creation (there is nothing to upload), so status and the publish
+    // gate work unchanged. The CHECK guarantees a YouTube row has it set.
     videoUploadedAt: timestamp("video_uploaded_at", { withTimezone: true }),
     publishedAt: timestamp("published_at", { withTimezone: true }),
     order: integer("order").notNull().default(0),
@@ -180,7 +192,25 @@ export const lectures = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("lectures_course_order_idx").on(t.courseId, t.order)]
+  (t) => [
+    index("lectures_course_order_idx").on(t.courseId, t.order),
+    // Exactly the right fields for each source. A YouTube row must already have
+    // its trusted duration (professor-supplied) and "video ready" timestamp.
+    check(
+      "lectures_video_source_check",
+      sql`(
+        ${t.videoSource} = 'upload'
+        AND ${t.youtubeVideoId} IS NULL
+        AND ${t.videoStoragePath} IS NOT NULL
+      ) OR (
+        ${t.videoSource} = 'youtube'
+        AND ${t.youtubeVideoId} ~ '^[A-Za-z0-9_-]{11}$'
+        AND ${t.videoStoragePath} IS NULL
+        AND ${t.durationSeconds} >= 1
+        AND ${t.videoUploadedAt} IS NOT NULL
+      )`,
+    ),
+  ],
 ).enableRLS();
 
 // ─── Lecture comprehension questions ──────────────────────────────────────────
