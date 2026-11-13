@@ -20,13 +20,34 @@ import { getOwnedLecture } from "./lectures";
 // must be published; a professor/admin who owns the course may view any
 // status (preview) but never accrues progress.
 
+/**
+ * Where the viewer's player gets the video. Server-side only: the stream route
+ * turns it into a signed URL or hands back the YouTube id; the lecture page
+ * never passes it to the client.
+ */
+export type LectureVideo =
+  | { source: "upload"; storagePath: string }
+  | { source: "youtube"; videoId: string };
+
+/** lectures_video_source_check guarantees the matching field is set. */
+function videoOf(row: {
+  videoSource: "upload" | "youtube";
+  videoStoragePath: string | null;
+  youtubeVideoId: string | null;
+}): LectureVideo | null {
+  if (row.videoSource === "youtube") {
+    return row.youtubeVideoId ? { source: "youtube", videoId: row.youtubeVideoId } : null;
+  }
+  return row.videoStoragePath ? { source: "upload", storagePath: row.videoStoragePath } : null;
+}
+
 export type LectureView = {
   id: string;
   courseId: string;
   title: string;
   description: string | null;
   durationSeconds: number | null;
-  videoStoragePath: string;
+  video: LectureVideo;
   /** True when the viewer is an enrolled student whose progress is tracked. */
   tracksProgress: boolean;
   progress: ProgressView;
@@ -54,7 +75,9 @@ const lectureColumns = {
   title: lectures.title,
   description: lectures.description,
   durationSeconds: lectures.durationSeconds,
+  videoSource: lectures.videoSource,
   videoStoragePath: lectures.videoStoragePath,
+  youtubeVideoId: lectures.youtubeVideoId,
 };
 
 /** Published lecture the student is enrolled for, with their progress. */
@@ -90,14 +113,15 @@ async function getLectureForEnrolledStudent(lectureId: string, studentId: string
 export async function getLectureForViewer(lectureId: string, actor: Actor): Promise<LectureView | null> {
   if (actor.role === "professor" || actor.role === "admin") {
     const owned = await getOwnedLecture(lectureId, actor);
-    if (owned) {
+    const ownedVideo = owned && videoOf(owned);
+    if (owned && ownedVideo) {
       return {
         id: owned.id,
         courseId: owned.courseId,
         title: owned.title,
         description: owned.description,
         durationSeconds: owned.durationSeconds,
-        videoStoragePath: owned.videoStoragePath,
+        video: ownedVideo,
         tracksProgress: false,
         progress: EMPTY_PROGRESS,
       };
@@ -105,6 +129,8 @@ export async function getLectureForViewer(lectureId: string, actor: Actor): Prom
   }
   const row = await getLectureForEnrolledStudent(lectureId, actor.id);
   if (!row) return null;
+  const video = videoOf(row);
+  if (!video) return null;
   const intervals = mergeIntervals(storedIntervalsSchema.parse(row.intervals ?? []));
   return {
     id: row.id,
@@ -112,7 +138,7 @@ export async function getLectureForViewer(lectureId: string, actor: Actor): Prom
     title: row.title,
     description: row.description,
     durationSeconds: row.durationSeconds,
-    videoStoragePath: row.videoStoragePath,
+    video,
     tracksProgress: true,
     progress: {
       intervals,
