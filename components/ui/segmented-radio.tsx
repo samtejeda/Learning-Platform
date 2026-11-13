@@ -11,6 +11,7 @@ export function SegmentedRadio<T extends string>({
   onChange,
   options,
   disabled,
+  tall,
 }: {
   legend: string;
   name: string;
@@ -18,6 +19,8 @@ export function SegmentedRadio<T extends string>({
   onChange: (next: T) => void;
   options: { value: T; label: ReactNode }[];
   disabled?: boolean;
+  /** 44px touch targets (the default is 40px, which suits denser screens). */
+  tall?: boolean;
 }) {
   return (
     <fieldset disabled={disabled} className="min-w-0">
@@ -33,7 +36,7 @@ export function SegmentedRadio<T extends string>({
               onChange={() => onChange(option.value)}
               className="peer sr-only"
             />
-            <span className="flex min-h-10 cursor-pointer items-center justify-center rounded-sm px-3 text-sm font-medium text-muted transition-colors hover:text-ink peer-checked:bg-canvas peer-checked:text-ink peer-checked:shadow-subtle peer-focus-visible:focus-ring peer-disabled:cursor-not-allowed peer-disabled:opacity-60">
+            <span className={`flex ${tall ? "min-h-11" : "min-h-10"} cursor-pointer items-center justify-center rounded-sm px-3 text-sm font-medium text-muted transition-colors hover:text-ink peer-checked:bg-canvas peer-checked:text-ink peer-checked:shadow-subtle peer-focus-visible:focus-ring peer-disabled:cursor-not-allowed peer-disabled:opacity-60`}>
               {option.label}
             </span>
           </label>

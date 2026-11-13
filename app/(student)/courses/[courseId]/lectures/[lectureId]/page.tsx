@@ -9,6 +9,7 @@ import { BackLink } from "@/components/ui/back-link";
 import { buttonClassName } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
+import { ComprehensionSection } from "@/components/video-player/comprehension-section";
 import { VideoPlayer } from "@/components/video-player/video-player";
 
 const paramsSchema = z.object({ courseId: z.uuid(), lectureId: z.uuid() });
@@ -85,6 +86,8 @@ export default async function LecturePage({
         initialProgress={lecture.progress}
         next={next ? { href: lectureHref(next.id), title: next.title } : null}
       />
+
+      <ComprehensionSection lectureId={lecture.id} user={user} tracksProgress={lecture.tracksProgress} />
 
       {lecture.description && (
         <Card variant="outlined">
