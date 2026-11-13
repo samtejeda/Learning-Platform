@@ -105,7 +105,7 @@ describe("lectures over HTTP", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("no-store");
     const body = await res.json();
-    expect(Object.keys(body).sort()).toEqual(["expiresAt", "url"]);
+    expect(Object.keys(body).sort()).toEqual(["expiresAt", "source", "url"]);
 
     const head = await fetch(body.url, { headers: { Range: "bytes=0-11" } });
     expect(head.status).toBe(206);

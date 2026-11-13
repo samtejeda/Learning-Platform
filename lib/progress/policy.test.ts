@@ -135,3 +135,36 @@ describe("applySegment", () => {
     expect(percentWatched(120, 100)).toBe(100);
   });
 });
+
+// RATE_TOLERANCE is deliberately the same for uploaded and YouTube lectures
+// (Sam, 2026-11-09: 1.5 acceptable, 2 not). A YouTube viewer can pick their own
+// speed, so this pins the consequence documented in CLAUDE.md / API.md: playback
+// at or below ~1.5x earns full credit, 2x earns almost none.
+describe("playback speed vs RATE_TOLERANCE", () => {
+  function watchAtSpeed(speed: number, pingMediaSeconds = 10, duration = 100) {
+    let state = fresh();
+    let wall = 0;
+    let rejected = 0;
+    for (let t = 0; t < duration; t += pingMediaSeconds) {
+      wall += pingMediaSeconds / speed;
+      const r = applySegment(state, { from: t, to: Math.min(duration, t + pingMediaSeconds) }, opts(at(wall), duration));
+      if (r.ok) state = r.state;
+      else rejected += 1;
+    }
+    return { state, rejected };
+  }
+
+  it("1x and 1.5x playback completes with nothing rejected", () => {
+    for (const speed of [1, 1.25, 1.5]) {
+      const { state, rejected } = watchAtSpeed(speed);
+      expect(rejected, `${speed}x`).toBe(0);
+      expect(state.completed, `${speed}x`).toBe(true);
+    }
+  });
+
+  it("2x playback is rejected as too fast and does not complete", () => {
+    const { state, rejected } = watchAtSpeed(2);
+    expect(rejected).toBeGreaterThan(0);
+    expect(state.completed).toBe(false);
+  });
+});

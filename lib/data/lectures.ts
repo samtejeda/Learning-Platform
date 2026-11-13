@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { courses, lectureProgress, lectures } from "@/lib/db/schema";
 import type { Actor } from "./courses";
@@ -12,12 +12,17 @@ import { comprehensionAllowsPublish } from "./lecture-comprehension";
 
 export type LectureStatus = "pending_upload" | "draft" | "published";
 
+export type VideoSource = "upload" | "youtube";
+
 export type ProfessorLecture = {
   id: string;
   title: string;
   description: string | null;
   order: number;
   durationSeconds: number | null;
+  videoSource: VideoSource;
+  /** The 11-character id (professor-only DTO, so the edit form can show it). Null for uploads. */
+  youtubeVideoId: string | null;
   status: LectureStatus;
   /** Whether the end-of-lecture question is switched on (the written question is kept when off). */
   comprehensionEnabled: boolean;
@@ -49,6 +54,8 @@ export async function listLecturesForProfessor(courseId: string): Promise<Profes
       description: lectures.description,
       order: lectures.order,
       durationSeconds: lectures.durationSeconds,
+      videoSource: lectures.videoSource,
+      youtubeVideoId: lectures.youtubeVideoId,
       videoUploadedAt: lectures.videoUploadedAt,
       publishedAt: lectures.publishedAt,
       comprehensionEnabled: lectures.comprehensionEnabled,
@@ -106,7 +113,11 @@ export type OwnedLecture = {
   courseId: string;
   title: string;
   description: string | null;
-  videoStoragePath: string;
+  videoSource: VideoSource;
+  /** Null for YouTube lectures. */
+  videoStoragePath: string | null;
+  /** Null for uploaded lectures. */
+  youtubeVideoId: string | null;
   durationSeconds: number | null;
   videoUploadedAt: Date | null;
   publishedAt: Date | null;
@@ -129,7 +140,9 @@ export async function getOwnedLecture(lectureId: string, actor: Actor): Promise<
       courseId: lectures.courseId,
       title: lectures.title,
       description: lectures.description,
+      videoSource: lectures.videoSource,
       videoStoragePath: lectures.videoStoragePath,
+      youtubeVideoId: lectures.youtubeVideoId,
       durationSeconds: lectures.durationSeconds,
       videoUploadedAt: lectures.videoUploadedAt,
       publishedAt: lectures.publishedAt,
@@ -162,6 +175,36 @@ export async function insertLecture(input: {
   });
 }
 
+/**
+ * Create a YouTube lecture (a draft). There is nothing to upload, so the video
+ * is "ready" immediately: `video_uploaded_at` is set now so status and the
+ * publish gate work unchanged, and `lectures_video_source_check` guarantees the
+ * row has a well-formed id and a trusted duration. `durationSeconds` comes from
+ * the PROFESSOR's browser or manual entry, never a student's.
+ */
+export async function insertYoutubeLecture(input: {
+  id: string;
+  courseId: string;
+  title: string;
+  description: string | null;
+  youtubeVideoId: string;
+  durationSeconds: number;
+}): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [{ next }] = await tx
+      .select({ next: sql<number>`coalesce(max(${lectures.order}), -1) + 1` })
+      .from(lectures)
+      .where(eq(lectures.courseId, input.courseId));
+    await tx.insert(lectures).values({
+      ...input,
+      videoSource: "youtube",
+      videoStoragePath: null,
+      videoUploadedAt: new Date(),
+      order: next,
+    });
+  });
+}
+
 export async function markLectureUploaded(lectureId: string, durationSeconds: number): Promise<void> {
   await db
     .update(lectures)
@@ -170,7 +213,8 @@ export async function markLectureUploaded(lectureId: string, durationSeconds: nu
 }
 
 /**
- * Publish only if the video is actually uploaded AND, when the comprehension
+ * Publish only if the video exists (an uploaded file, OR a YouTube id with a
+ * valid duration) AND, when the comprehension
  * question is enabled, that question is complete in both languages (re-checked
  * here under a row lock, not just in the action); returns false otherwise.
  */
@@ -189,17 +233,55 @@ export async function setLecturePublished(lectureId: string, published: boolean)
     const rows = await tx
       .update(lectures)
       .set({ publishedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(lectures.id, lectureId), isNotNull(lectures.videoUploadedAt)))
+      .where(
+        and(
+          eq(lectures.id, lectureId),
+          or(
+            and(eq(lectures.videoSource, "upload"), isNotNull(lectures.videoUploadedAt)),
+            and(
+              eq(lectures.videoSource, "youtube"),
+              isNotNull(lectures.youtubeVideoId),
+              gte(lectures.durationSeconds, 1),
+            ),
+          ),
+        ),
+      )
       .returning({ id: lectures.id });
     return rows.length > 0;
   });
 }
 
+/**
+ * Edit a lecture. Title/description apply to any lecture. `youtube` (a new id
+ * and/or duration) applies to YouTube lectures ONLY: the source is immutable,
+ * so the update is guarded by `video_source = 'youtube'` in the query and
+ * returns false (nothing written) for an uploaded lecture.
+ */
 export async function updateLectureRow(
   lectureId: string,
-  input: { title: string; description: string | null },
-): Promise<void> {
-  await db.update(lectures).set({ ...input, updatedAt: new Date() }).where(eq(lectures.id, lectureId));
+  input: {
+    title: string;
+    description: string | null;
+    youtube?: { videoId?: string; durationSeconds?: number };
+  },
+): Promise<boolean> {
+  const { youtube, ...base } = input;
+  const touchesVideo = youtube !== undefined && (youtube.videoId !== undefined || youtube.durationSeconds !== undefined);
+  const rows = await db
+    .update(lectures)
+    .set({
+      ...base,
+      ...(youtube?.videoId !== undefined ? { youtubeVideoId: youtube.videoId } : {}),
+      ...(youtube?.durationSeconds !== undefined ? { durationSeconds: youtube.durationSeconds } : {}),
+      updatedAt: new Date(),
+    })
+    .where(
+      touchesVideo
+        ? and(eq(lectures.id, lectureId), eq(lectures.videoSource, "youtube"))
+        : eq(lectures.id, lectureId),
+    )
+    .returning({ id: lectures.id });
+  return rows.length > 0;
 }
 
 /**
@@ -231,12 +313,12 @@ export async function deleteLectureRow(lectureId: string): Promise<void> {
   await db.delete(lectures).where(eq(lectures.id, lectureId));
 }
 
-/** Storage paths for a set of lectures (used for cleanup). */
+/** Storage paths for a set of lectures (used for cleanup). YouTube lectures have none. */
 export async function listStoragePaths(lectureIds: string[]): Promise<string[]> {
   if (lectureIds.length === 0) return [];
   const rows = await db
     .select({ path: lectures.videoStoragePath })
     .from(lectures)
     .where(inArray(lectures.id, lectureIds));
-  return rows.map((r) => r.path);
+  return rows.flatMap((r) => (r.path ? [r.path] : []));
 }

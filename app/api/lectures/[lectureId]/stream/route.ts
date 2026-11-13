@@ -11,12 +11,16 @@ import { uuidSchema } from "@/lib/validation/courses";
 /**
  * GET /api/lectures/[lectureId]/stream
  *
- * Returns a short-lived signed URL for the lecture video. Students must be
+ * Tells the player where the lecture video comes from. Students must be
  * enrolled in the course and the lecture must be published; the owning
  * professor (or an admin) may preview any status. Unauthorised and
  * non-existent lectures are both 404 so ids can't be probed.
  *
- * Response: { url, expiresAt } — nothing else. Never cached.
+ * Response, by the lecture's source (nothing else, never cached):
+ *   upload  → { source: "upload", url, expiresAt }   short-lived signed URL
+ *   youtube → { source: "youtube", videoId }          11-character id; no Storage or CDN call
+ * A YouTube id is not secret (an unlisted video plays for anyone who has it),
+ * so it is unsuitable for paid-only or enrolled-only content (API.md).
  */
 export async function GET(_request: NextRequest, ctx: { params: Promise<{ lectureId: string }> }) {
   try {
@@ -31,9 +35,16 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ lectur
     const lecture = await getLectureForViewer(id.data, user);
     if (!lecture) return jsonError(404, "not_found");
 
+    const headers = { "Cache-Control": "no-store" };
+
+    if (lecture.video.source === "youtube") {
+      return NextResponse.json({ source: "youtube", videoId: lecture.video.videoId }, { headers });
+    }
+
+    const { storagePath } = lecture.video;
     let signed;
     try {
-      signed = await createLectureStreamUrl(lecture.videoStoragePath);
+      signed = await createLectureStreamUrl(storagePath);
     } catch (err) {
       if (!(err instanceof StorageError)) throw err;
       return jsonError(503, "storage_unavailable", "Video is unavailable right now. Please try again.");
@@ -44,8 +55,8 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ lectur
     logger.info("lecture.stream_url_issued", { lectureId: lecture.id });
 
     return NextResponse.json(
-      { url: await toCdnUrl(lecture.videoStoragePath, signed), expiresAt: signed.expiresAt.toISOString() },
-      { headers: { "Cache-Control": "no-store" } },
+      { source: "upload", url: await toCdnUrl(storagePath, signed), expiresAt: signed.expiresAt.toISOString() },
+      { headers },
     );
   } catch (err) {
     return handleRouteError(err);
