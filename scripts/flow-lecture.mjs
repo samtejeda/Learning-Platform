@@ -76,6 +76,7 @@ await prof.waitForSelector("form:has(#email) button[type=submit][aria-busy=true]
 await prof.waitForSelector("form:has(#email) button[type=submit]:not([aria-busy=true])", { timeout: 30000 });
 
 // upload through the real UI
+await prof.getByText("Upload a video", { exact: true }).click(); // the add-lecture choice comes first
 await prof.fill("form:has(input[type=file]) input[name=title]", "Lecture 1 — Test clip");
 await prof.fill("form:has(input[type=file]) textarea[name=description]", "A generated 24-second clip.\nUsed to verify playback, seeking and completion.");
 await prof.setInputFiles("input[type=file]", CLIP);

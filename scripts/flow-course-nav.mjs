@@ -101,6 +101,7 @@ await prof.click("#syllabus button[type=submit]");
 await prof.waitForSelector("text=Syllabus uploaded.", { timeout: 45000 });
 await prof.waitForLoadState("networkidle");
 // lecture
+await prof.getByText("Upload a video", { exact: true }).click(); // the add-lecture choice comes first
 await prof.fill("#lectures input[name=title]", "Lecture 1 — nav clip");
 await prof.setInputFiles("#lectures input[type=file]", { name: "clip.mp4", mimeType: "video/mp4", buffer: MP4 });
 await prof.click("#lectures form:has(input[type=file]) button[type=submit]");
