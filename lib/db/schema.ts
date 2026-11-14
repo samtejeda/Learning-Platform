@@ -290,6 +290,32 @@ export const lectureComprehensionAttempts = pgTable(
   ]
 ).enableRLS();
 
+// ─── Lecture comprehension unlocks ────────────────────────────────────────────
+// A professor's decision to let one student past a lecture's comprehension
+// question (e.g. after two wrong attempts). Counts as "cleared" for locking the
+// next lecture and NEVER alters attempt history. Idempotent per student+lecture.
+// `unlocked_by` is SET NULL so the record outlives a deleted professor account.
+export const lectureComprehensionUnlocks = pgTable(
+  "lecture_comprehension_unlocks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    lectureId: uuid("lecture_id")
+      .notNull()
+      .references(() => lectures.id, { onDelete: "cascade" }),
+    studentId: uuid("student_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    unlockedBy: uuid("unlocked_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("lecture_comprehension_unlocks_lecture_student_idx").on(t.lectureId, t.studentId),
+    index("lecture_comprehension_unlocks_student_idx").on(t.studentId),
+  ]
+).enableRLS();
+
 // ─── Course Materials ─────────────────────────────────────────────────────────
 // General course-level resources, not tied to a specific lecture: an
 // uploaded file (PDF/doc/image/video) or an external link. Mirrors the

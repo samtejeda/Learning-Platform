@@ -14,7 +14,9 @@ import { progressSegmentSchema } from "@/lib/validation/progress";
  * completion (lib/progress/policy.ts): segments over 20 s are rejected
  * (400), and coverage can't grow faster than wall-clock time allows —
  * such pings are ignored with `accepted: false` (200) rather than counted.
- * Requires enrollment + a published lecture (else 404). Only students'
+ * Requires enrollment + a published lecture (else 404), and the lecture must
+ * not be locked by an earlier comprehension question (403 "locked"; nothing is
+ * recorded, not even a progress row). Only students'
  * progress is recorded; a professor previewing gets 404 here.
  *
  * Response: { accepted, percent, completed, watchedSeconds, intervals }.
@@ -51,6 +53,8 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ lectur
       switch (result.reason) {
         case "not_found":
           return jsonError(404, "not_found");
+        case "locked":
+          return jsonError(403, "locked", "Finish the previous lecture's question to unlock this lecture.");
         case "no_duration":
           return jsonError(409, "not_ready", "This lecture isn't ready for playback yet.");
         case "invalid_segment":

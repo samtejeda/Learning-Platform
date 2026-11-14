@@ -48,7 +48,7 @@ Read this before you commit to a deployment. Anything in the "not built" list is
 | **Forum** | Database tables exist; there are no routes or screens. |
 | **Stripe course purchases** | Not built. Courses can only be reached by invitation. |
 | **YouTube-embedded lectures** | Backend built; the screens are not. A lecture can be an uploaded file or an embedded YouTube video, chosen per lecture, but there is no form to add a YouTube lecture and the student player cannot play one yet. See the YouTube row in the services table below. |
-| **Lecture comprehension question** | Not built. Some database columns and a student component exist, but nothing renders it and there is no authoring screen. |
+| **Lecture comprehension question** | Built, except two screens. A professor can write a bilingual multiple-choice question per lecture and switch it on or off, and students answer it after finishing the lecture (two attempts). Passing, or being unlocked by the professor, opens the next lecture; a student who fails twice stays locked until the professor unlocks them. The server enforces all of this. **Not built yet:** the designed "locked" screens for students, the professor's list of blocked students, and the Unlock button (the backend for them exists). There is no notification: a blocked student contacts the teacher outside the app. |
 | **Attaching a phone number to an account in the app** | Not built, so phone sign-in only works for accounts whose phone was set some other way. |
 | **Student language setting** | Not built. Exam content is bilingual; the interface text is English. |
 | **Deleting a course from the UI** | Not built. Deleting a course directly in the database leaves its stored files behind. |
