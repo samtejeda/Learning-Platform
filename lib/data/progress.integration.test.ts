@@ -6,6 +6,7 @@ import { insertCourse, getCourseForStudent } from "@/lib/data/courses";
 import { inviteByEmail } from "@/lib/data/enrollments";
 import { insertLecture, markLectureUploaded, setLecturePublished } from "@/lib/data/lectures";
 import { getLectureForViewer, recordProgress } from "@/lib/data/progress";
+import { openView } from "@/test/lecture-views";
 import { GET as streamGET } from "@/app/api/lectures/[lectureId]/stream/route";
 import { POST as progressPOST } from "@/app/api/lectures/[lectureId]/progress/route";
 import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
@@ -105,7 +106,7 @@ describe("stream + progress route handlers", () => {
     expect(burst.status).toBe(200);
     expect(await burst.json()).toEqual({ accepted: false, reason: "too_fast" });
     const view = await getLectureForViewer(published, { id: SEED.student.id, role: "student" });
-    expect(view!.progress).toMatchObject({ watchedSeconds: 10, percent: 10, lastPositionSeconds: 30 });
+    expect(openView(view).progress).toMatchObject({ watchedSeconds: 10, percent: 10, lastPositionSeconds: 30 });
 
     // Simulate genuine playback by recording with explicit timestamps.
     const base = new Date(Date.now() + 60_000);
@@ -116,7 +117,7 @@ describe("stream + progress route handlers", () => {
       t += 10;
     }
     const done = await getLectureForViewer(published, { id: SEED.student.id, role: "student" });
-    expect(done!.progress).toMatchObject({ completed: true, percent: 100, intervals: [[0, 100]] });
+    expect(openView(done).progress).toMatchObject({ completed: true, percent: 100, intervals: [[0, 100]] });
     const course = await getCourseForStudent(courseId, SEED.student.id);
     expect(course!.lectures).toMatchObject([{ id: published, completed: true, percentWatched: 100 }]);
   });

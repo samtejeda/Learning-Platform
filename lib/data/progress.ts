@@ -12,7 +12,9 @@ import {
   type Segment,
 } from "@/lib/progress/policy";
 import { storedIntervalsSchema } from "@/lib/validation/progress";
+import type { LectureLock } from "@/lib/lectures/lock-rules";
 import type { Actor } from "./courses";
+import { getStudentLectureLocks } from "./lecture-locks";
 import { getOwnedLecture } from "./lectures";
 
 // Viewer-side lecture access and progress. Access rules live in the query:
@@ -41,7 +43,8 @@ function videoOf(row: {
   return row.videoStoragePath ? { source: "upload", storagePath: row.videoStoragePath } : null;
 }
 
-export type LectureView = {
+export type OpenLectureView = {
+  locked: false;
   id: string;
   courseId: string;
   title: string;
@@ -52,6 +55,22 @@ export type LectureView = {
   tracksProgress: boolean;
   progress: ProgressView;
 };
+
+/**
+ * A lecture the student is enrolled for and can see in their list, but may not
+ * open yet (the previous lecture's comprehension question isn't cleared). It
+ * deliberately has NO video, description or progress, so a caller that forgets
+ * to handle `locked` cannot compile its way to a stream URL or a YouTube id.
+ */
+export type LockedLectureView = {
+  locked: true;
+  id: string;
+  courseId: string;
+  title: string;
+  lock: LectureLock;
+};
+
+export type LectureView = OpenLectureView | LockedLectureView;
 
 export type ProgressView = {
   intervals: Interval[];
@@ -106,7 +125,9 @@ async function getLectureForEnrolledStudent(lectureId: string, studentId: string
 
 /**
  * What the viewer may see of a lecture, or null. Students: enrolled +
- * published. Professors/admins: their own course, any status (preview).
+ * published, and a lecture locked by an earlier comprehension question comes
+ * back as a LockedLectureView. Professors/admins: their own course, any
+ * status (preview), never locked.
  * A professor who is also enrolled somewhere is treated as a student for
  * that course only if they are not its owner.
  */
@@ -116,6 +137,7 @@ export async function getLectureForViewer(lectureId: string, actor: Actor): Prom
     const ownedVideo = owned && videoOf(owned);
     if (owned && ownedVideo) {
       return {
+        locked: false,
         id: owned.id,
         courseId: owned.courseId,
         title: owned.title,
@@ -131,8 +153,15 @@ export async function getLectureForViewer(lectureId: string, actor: Actor): Prom
   if (!row) return null;
   const video = videoOf(row);
   if (!video) return null;
+  // A progress row means the student already started this lecture (the
+  // mid-course exemption), so the lock query is only needed on a first visit.
+  if (row.completed === null) {
+    const lock = (await getStudentLectureLocks(db, row.courseId, actor.id)).get(row.id) ?? null;
+    if (lock) return { locked: true, id: row.id, courseId: row.courseId, title: row.title, lock };
+  }
   const intervals = mergeIntervals(storedIntervalsSchema.parse(row.intervals ?? []));
   return {
+    locked: false,
     id: row.id,
     courseId: row.courseId,
     title: row.title,
@@ -152,7 +181,7 @@ export async function getLectureForViewer(lectureId: string, actor: Actor): Prom
 
 export type RecordResult =
   | { ok: true; progress: ProgressView; justCompleted: boolean }
-  | { ok: false; reason: "not_found" | "no_duration" | Exclude<ApplyResult, { ok: true }>["reason"] };
+  | { ok: false; reason: "not_found" | "locked" | "no_duration" | Exclude<ApplyResult, { ok: true }>["reason"] };
 
 /**
  * Apply one watched segment for an enrolled student. Runs in a transaction
@@ -169,7 +198,12 @@ export async function recordProgress(
 ): Promise<RecordResult> {
   return db.transaction(async (tx) => {
     const [lecture] = await tx
-      .select({ id: lectures.id, durationSeconds: lectures.durationSeconds, threshold: lectures.completionThreshold })
+      .select({
+        id: lectures.id,
+        courseId: lectures.courseId,
+        durationSeconds: lectures.durationSeconds,
+        threshold: lectures.completionThreshold,
+      })
       .from(lectures)
       .innerJoin(
         enrollments,
@@ -178,6 +212,21 @@ export async function recordProgress(
       .where(and(eq(lectures.id, lectureId), isNotNull(lectures.publishedAt)))
       .limit(1);
     if (!lecture) return { ok: false, reason: "not_found" };
+
+    // Locked lectures take no progress. This MUST run before the insert below:
+    // the progress row is what exempts a lecture from locking, so creating it
+    // for a locked lecture would unlock it. A row that already exists means the
+    // student started this lecture earlier, so the common ping skips the query.
+    const [existing] = await tx
+      .select({ id: lectureProgress.id })
+      .from(lectureProgress)
+      .where(and(eq(lectureProgress.studentId, studentId), eq(lectureProgress.lectureId, lectureId)))
+      .limit(1);
+    if (!existing) {
+      const lock = (await getStudentLectureLocks(tx, lecture.courseId, studentId)).get(lecture.id);
+      if (lock) return { ok: false, reason: "locked" };
+    }
+
     if (!lecture.durationSeconds || lecture.durationSeconds <= 0) return { ok: false, reason: "no_duration" };
 
     await tx

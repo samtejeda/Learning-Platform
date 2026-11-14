@@ -19,6 +19,8 @@ import { uuidSchema } from "@/lib/validation/courses";
  * Response, by the lecture's source (nothing else, never cached):
  *   upload  → { source: "upload", url, expiresAt }   short-lived signed URL
  *   youtube → { source: "youtube", videoId }          11-character id; no Storage or CDN call
+ * 403 { error: { code: "locked" } } when an earlier comprehension question has
+ * not been cleared by this student (and they haven't started this lecture).
  * A YouTube id is not secret (an unlisted video plays for anyone who has it),
  * so it is unsuitable for paid-only or enrolled-only content (API.md).
  */
@@ -34,8 +36,17 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ lectur
 
     const lecture = await getLectureForViewer(id.data, user);
     if (!lecture) return jsonError(404, "not_found");
-
     const headers = { "Cache-Control": "no-store" };
+
+    // Locked for this student (an earlier lecture's comprehension question is
+    // not cleared). Same answer for uploads and YouTube, and checked before the
+    // source is looked at, so no signed URL or video id is ever produced.
+    if (lecture.locked) {
+      return NextResponse.json(
+        { error: { code: "locked", message: "Finish the previous lecture's question to unlock this lecture." } },
+        { status: 403, headers },
+      );
+    }
 
     if (lecture.video.source === "youtube") {
       return NextResponse.json({ source: "youtube", videoId: lecture.video.videoId }, { headers });

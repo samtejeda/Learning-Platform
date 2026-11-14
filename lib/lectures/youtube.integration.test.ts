@@ -18,6 +18,7 @@ import {
   setLecturePublished,
 } from "@/lib/data/lectures";
 import { getLectureForViewer, recordProgress } from "@/lib/data/progress";
+import { openView } from "@/test/lecture-views";
 import {
   createYoutubeLecture,
   deleteLecture,
@@ -301,10 +302,10 @@ describe("YouTube lectures", () => {
     it("changing the duration re-scores existing progress percentages (completions stay)", async () => {
       const id = await ytLecture({ publish: true, duration: 100 });
       await recordProgress(id, SEED.student.id, { from: 0, to: 10 }, 10, new Date());
-      expect((await getLectureForViewer(id, STUDENT))!.progress).toMatchObject({ percent: 10, watchedSeconds: 10 });
+      expect((openView(await getLectureForViewer(id, STUDENT))).progress).toMatchObject({ percent: 10, watchedSeconds: 10 });
       actAs(SEED.profA.id);
       await expect(edit(id, { title: "Longer", description: "", durationSeconds: "200" })).rejects.toBeInstanceOf(RedirectSignal);
-      expect((await getLectureForViewer(id, STUDENT))!.progress).toMatchObject({ percent: 5, watchedSeconds: 10 });
+      expect((openView(await getLectureForViewer(id, STUDENT))).progress).toMatchObject({ percent: 5, watchedSeconds: 10 });
     });
   });
 
@@ -466,7 +467,7 @@ describe("YouTube lectures", () => {
         expect(r.ok, `segment ${t}`).toBe(true);
         t += 10;
       }
-      expect((await getLectureForViewer(id, STUDENT))!.progress).toMatchObject({ completed: true, percent: 100 });
+      expect((openView(await getLectureForViewer(id, STUDENT))).progress).toMatchObject({ completed: true, percent: 100 });
     });
 
     it("a YouTube lecture never accrues progress for the previewing professor or an outsider, or when a draft", async () => {
