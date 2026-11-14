@@ -70,7 +70,7 @@ age_encrypt() {
 }
 
 # Proves the age tooling can encrypt AND decrypt in this environment, using a
-# throwaway keypair. It cannot prove Sam's real key works (the private half is
+# throwaway keypair. It cannot prove the owner's real key works (the private half is
 # deliberately never here): that is what the periodic restore drill is for.
 age_selftest() {
   local snippet='
