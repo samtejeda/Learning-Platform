@@ -76,7 +76,7 @@ describe("comprehension locks over HTTP", () => {
     await markLectureUploaded(l2, 100);
     expect(await setLecturePublished(l2, true)).toBe(true);
 
-    await insertYoutubeLecture({ id: l3, courseId, title: "L3 youtube", description: null, youtubeVideoId: YT, durationSeconds: 100 });
+    await insertYoutubeLecture({ id: l3, courseId, title: "L3 third lecture", description: null, youtubeVideoId: YT, durationSeconds: 100 });
     expect(await setLecturePublished(l3, true)).toBe(true);
 
     const [pc, opc, sc, s2c] = await Promise.all([
