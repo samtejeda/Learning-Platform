@@ -103,7 +103,7 @@ export function YoutubeEmbed({ videoId, startSeconds = 0, handlers, bleed, label
       {phase === "failed" && (
         <div className="space-y-3">
           <Alert tone="error">{YOUTUBE_LOAD_FAILED}</Alert>
-          <Button variant="secondary" size="sm" onClick={() => setAttempt((n) => n + 1)}>
+          <Button variant="secondary" size="sm" className="min-h-11" onClick={() => setAttempt((n) => n + 1)}>
             Try again
           </Button>
         </div>

@@ -12,7 +12,7 @@ import { BackLink } from "@/components/ui/back-link";
 import { buttonClassName } from "@/components/ui/button";
 import { RosterManager } from "@/components/roster-manager";
 import { LectureListManager } from "@/components/lecture-list-manager";
-import { LectureUploadForm } from "@/components/lecture-upload-form";
+import { AddLecture } from "@/components/add-lecture";
 import { SyllabusManager } from "@/components/syllabus-manager";
 import { SyllabusViewer } from "@/components/syllabus-viewer";
 import { CourseMaterialsManager } from "@/components/course-materials-manager";
@@ -79,9 +79,9 @@ export default async function ProfessorCoursePage({
           <LectureListManager courseId={course.id} lectures={course.lectures} />
           <AddBlock title="Add a lecture">
             <p className="mb-5 mt-1 text-sm text-muted">
-              Upload the video, then publish it when you&apos;re ready. Students only see published lectures.
+              Upload a video or link a YouTube video, then publish it when you&apos;re ready. Students only see published lectures.
             </p>
-            <LectureUploadForm courseId={course.id} />
+            <AddLecture courseId={course.id} />
           </AddBlock>
         </>
       ),
