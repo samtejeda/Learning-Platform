@@ -22,6 +22,7 @@ import { openView } from "@/test/lecture-views";
 import {
   createYoutubeLecture,
   deleteLecture,
+  disableLectureComprehension,
   finalizeLectureUpload,
   publishLecture,
   retryLectureUpload,
@@ -341,6 +342,10 @@ describe("YouTube lectures", () => {
         })),
       ).toEqual({ success: "Comprehension question saved." });
       expect(await publishLecture(id)).toEqual({ success: "Published." });
+      // Turn it back off: an enabled, uncleared question locks every later
+      // lecture in this course for the student (comprehension locks), and the
+      // stream/progress tests below use later lectures.
+      expect(await disableLectureComprehension(id)).toEqual({ success: "Comprehension question turned off." });
     });
   });
 
