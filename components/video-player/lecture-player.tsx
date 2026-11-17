@@ -1,9 +1,18 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import type { ProgressView } from "@/lib/data/progress";
 import { useStreamUrl } from "./use-stream-url";
 import { VideoPlayer } from "./video-player";
-import { YoutubePlayer } from "./youtube-player";
+
+// Loaded only when a lecture's source is YouTube, so uploaded lectures never download it.
+const YoutubePlayer = dynamic(() => import("./youtube-player").then((m) => m.YoutubePlayer), {
+  loading: () => (
+    <div className="-mx-4 flex aspect-video items-center justify-center bg-black text-sm text-on-dark-soft sm:mx-0 sm:rounded-lg" aria-live="polite">
+      Loading video…
+    </div>
+  ),
+});
 
 type Props = {
   lectureId: string;
