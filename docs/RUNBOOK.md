@@ -15,7 +15,7 @@ Conventions: `<site>` is the production URL. Commands marked **(exercised)** wer
 | Uptime | UptimeRobot (free) pinging `<site>/api/health` | uptimerobot.com dashboard |
 | Backups | GitHub Actions → encrypted artifact | Repo → Actions → "Nightly encrypted database backup" |
 
-**Owner:** Sam. *Add a second person who can act if you're unreachable, plus their contact, here:* ______
+**Owner:** ______ *(the person responsible for this deployment).* *Add a second person who can act if you're unreachable, plus their contact, here:* ______
 
 ## 1. One-time setup (only you can do these)
 
@@ -214,15 +214,15 @@ It signs two URLs for the same object, fetches the first 1 KiB of each (repeatin
 
 **Flow:** the browser asks `GET /api/lectures/[id]/stream` → Next checks login, enrollment and published state exactly as before → it signs the Supabase URL, then wraps it in a Worker URL: `<VIDEO_CDN_URL>/v/<objectPath>?exp&o=<Supabase URL>&sig`. The Worker verifies the HMAC (`lib/video-cdn/token.ts`, shared with Next), pins the origin to our Supabase host and that exact object, then serves 8 MiB chunks from Cloudflare's cache, fetching a missing chunk from Supabase with a Range request. **Next decides who may watch; the Worker only proves "Next minted this".** A leaked URL works until its 15-minute expiry, same as a leaked Supabase URL today. Chunks (not whole files) because Cloudflare caps one cached object at 512 MB and cannot store partial responses.
 
-**Where things live:** code `workers/video-cdn/`; Worker `lp-video-cdn` on `https://lp-video-cdn.lp-academy-cdn.workers.dev`; secret `VIDEO_CDN_HMAC_SECRET` is set both in Vercel (Production) and as a Worker secret; Vercel also needs `VIDEO_CDN_URL`. Local copies of the secret and the API token live in `~/.learning-platform-secrets/` (never in the repo).
+**Where things live:** code `workers/video-cdn/`; Worker `lp-video-cdn` on `https://lp-video-cdn.<your-workers-subdomain>.workers.dev` (Cloudflare → Workers & Pages shows the subdomain; a new account has to create one first); secret `VIDEO_CDN_HMAC_SECRET` is set both in the host's Production environment and as a Worker secret; the host also needs `VIDEO_CDN_URL`. Keep the secret and the API token in a password manager, never in the repo.
 
 **Deploy / update the Worker** (**exercised** 2026-10-02):
 ```
 cd workers/video-cdn
-export CLOUDFLARE_API_TOKEN="$(cat ~/.learning-platform-secrets/cloudflare-api-token.txt)"
+export CLOUDFLARE_API_TOKEN=<token scoped to Workers Scripts: Edit on this one account>
 export CLOUDFLARE_ACCOUNT_ID=<account id> WRANGLER_SEND_METRICS=false
 npx wrangler deploy --var SUPABASE_ORIGIN:https://<project>.supabase.co
-tr -d '\n' < ~/.learning-platform-secrets/video-cdn-hmac-secret.txt | npx wrangler secret put VIDEO_CDN_HMAC_SECRET
+printf '%s' "<the same HMAC secret you set in the host>" | npx wrangler secret put VIDEO_CDN_HMAC_SECRET
 ```
 A brand-new `workers.dev` hostname can refuse TLS for a minute or two after its first deploy.
 
@@ -235,7 +235,7 @@ A brand-new `workers.dev` hostname can refuse TLS for a minute or two after its 
 **Symptoms:** video won't start, `403` from the Worker host → secrets differ between Vercel and the Worker (re-put both from the same file). `502` → Supabase unreachable or object missing. Worker error 1102/1015 or a 429 from Cloudflare → free-plan limits (see below).
 
 **Limits and caveats:**
-- Workers free plan: 100,000 requests/day, 10 ms CPU each. An 8 MiB chunk is one request, so a 45-minute lecture is about 75 requests; the free plan covers roughly 1,300 full views a day. Over that, the $5/mo paid plan is Sam's decision.
+- Workers free plan: 100,000 requests/day, 10 ms CPU each. An 8 MiB chunk is one request, so a 45-minute lecture is about 75 requests; the free plan covers roughly 1,300 full views a day. Over that, the $5/mo paid plan is the owner's decision.
 - The Cache API is **per Cloudflare data center**, not global: a viewer only hits chunks warmed by someone served from the same data center. Fine for one congregation in one region; expect more misses if students are spread across regions.
 - Cached chunks outlive a deleted lecture until Cloudflare evicts them, but they are unreachable: Next won't mint a URL for a lecture a student can't access.
 - **Not yet measured:** a real 45-minute (500-675 MB) lecture. Multi-chunk logic is verified live on 20 MiB; the free Supabase tier's 50 MB object cap blocks anything bigger until Pro is active.

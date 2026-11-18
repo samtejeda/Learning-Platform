@@ -1,7 +1,7 @@
 name: Nightly encrypted database backup
 
-# Dumps the Supabase database, encrypts it with a PUBLIC age key (only Sam's
-# offline private key can decrypt), proves the dump restores into a throwaway
+# Dumps the Supabase database, encrypts it with a PUBLIC age key (only the
+# owner's offline private key can decrypt), proves the dump restores into a throwaway
 # Supabase-flavoured Postgres, and stores the encrypted file as a workflow
 # artifact for 30 days. Any failure fails the run, and GitHub emails the repo
 # owner. Procedure, drills and recovery steps: docs/RUNBOOK.md.
@@ -37,8 +37,22 @@ jobs:
         with:
           persist-credentials: false
 
+      # The runner's package mirror can fail to resolve for a minute (this failed
+      # the 2026-11-11 run, a DNS error, and the next night's run passed), so
+      # retry with a growing pause before giving up. Still fails the run if all
+      # attempts fail, so a real outage is not hidden.
       - name: Install age
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq age
+        run: |
+          for attempt in 1 2 3 4; do
+            if sudo apt-get -o Acquire::Retries=3 update -qq \
+              && sudo apt-get -o Acquire::Retries=3 install -y -qq age; then
+              exit 0
+            fi
+            echo "::warning::apt attempt ${attempt} of 4 failed"
+            [ "${attempt}" -lt 4 ] && sleep $((attempt * 20))
+          done
+          echo "::error::could not install age after 4 attempts"
+          exit 1
 
       - name: Dump, encrypt, then restore-test
         env:

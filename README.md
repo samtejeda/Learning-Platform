@@ -6,7 +6,7 @@ It is built to be **deployed by each organization on its own accounts**: your ow
 
 **Stack:** Next.js 16 (App Router) + TypeScript, Supabase (Postgres, Auth, Storage), Drizzle ORM, Vercel, with optional Sentry, a Cloudflare Worker for video caching, and Twilio phone sign-in.
 
-> **Name and license are placeholders.** "Learning Platform" is a working title. See [License](#license).
+> **"Learning Platform" is a working title, and the code is all rights reserved for now.** See [License](#license).
 
 ---
 
@@ -48,7 +48,7 @@ Read this before you commit to a deployment. Anything in the "not built" list is
 | **Forum** | Database tables exist; there are no routes or screens. |
 | **Stripe course purchases** | Not built. Courses can only be reached by invitation. |
 | **YouTube-embedded lectures** | **Built.** A lecture is either an uploaded file or an embedded YouTube video, chosen per lecture (a course can mix both). The professor picks "Upload a video" or "YouTube link" when adding a lecture; for YouTube they paste a link and the length is read from the player (or typed). Students watch in YouTube's own player with progress counted by the same server rules. Not yet confirmed on a real phone with a real YouTube video: see the limits in the services table below. |
-| **Lecture comprehension question** | Not built. Some database columns and a student component exist, but nothing renders it and there is no authoring screen. |
+| **Lecture comprehension question** | Built, except two screens. A professor can write a bilingual multiple-choice question per lecture and switch it on or off, and students answer it after finishing the lecture (two attempts). Passing, or being unlocked by the professor, opens the next lecture; a student who fails twice stays locked until the professor unlocks them. The server enforces all of this. **Not built yet:** the designed "locked" screens for students, the professor's list of blocked students, and the Unlock button (the backend for them exists). There is no notification: a blocked student contacts the teacher outside the app. |
 | **Attaching a phone number to an account in the app** | Not built, so phone sign-in only works for accounts whose phone was set some other way. |
 | **Student language setting** | Not built. Exam content is bilingual; the interface text is English. |
 | **Deleting a course from the UI** | Not built. Deleting a course directly in the database leaves its stored files behind. |
@@ -396,6 +396,8 @@ Checked on 2026-11-09 from a fresh checkout, with no real accounts, secrets or n
 
 ## License
 
-**License: to be decided.**
+**Copyright (c) 2026 Sam Tejeda. All rights reserved.** See [LICENSE](LICENSE).
 
-This is a placeholder. No license has been chosen yet, and this repository does not include a `LICENSE` file. Until one is added, do not assume you have permission to copy, modify, deploy or redistribute this code; ask the maintainer.
+The source is public so it can be read, but it is **not** open source today: no permission is granted to use, copy, modify, deploy or redistribute it without the copyright holder's written permission. To ask for a license, see the contact line in [LICENSE](LICENSE).
+
+The maintainer intends to choose a license (open source or per-organization commercial) before any outside organization deploys it. Until that is announced here, assume the terms above.

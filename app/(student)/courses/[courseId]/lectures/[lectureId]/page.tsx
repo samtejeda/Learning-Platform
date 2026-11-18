@@ -28,6 +28,28 @@ export default async function LecturePage({
   const lecture = await getLectureForViewer(parsed.data.lectureId, user);
   if (!lecture || lecture.courseId !== parsed.data.courseId) notFound();
 
+  // Locked by an earlier lecture's comprehension question: no player, no stream
+  // request, nothing about the video. A plain placeholder until the frontend
+  // pass designs the locked state (the server enforces the lock either way).
+  if (lecture.locked) {
+    const courseHref = `/courses/${lecture.courseId}`;
+    const message =
+      lecture.lock.cause === "previous_question_blocked"
+        ? "You've used both attempts on the previous lecture's question. Contact your teacher to unlock this lecture."
+        : lecture.lock.cause === "previous_question_pending"
+          ? "Answer the question at the end of the previous lecture to open this one."
+          : "This lecture opens after you finish the previous lecture and answer its question.";
+    return (
+      <div className="space-y-6 sm:space-y-8">
+        <PageHeader back={<BackLink href={courseHref}>Back to course</BackLink>} title={lecture.title} />
+        <Alert tone="warning">{message}</Alert>
+        <Link href={`${courseHref}/lectures/${lecture.lock.afterLectureId}`} className={buttonClassName("secondary", true, "md")}>
+          Go to the previous lecture
+        </Link>
+      </div>
+    );
+  }
+
   // Sibling navigation comes from the student's own published list, so a
   // draft can never appear as "next". Instructor previews skip it.
   let prev: { id: string; title: string } | null = null;

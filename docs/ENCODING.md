@@ -22,7 +22,7 @@ ffmpeg -i input.mov \
   lecture.mp4
 ```
 
-`-movflags +faststart` puts the index at the front; `min(720,ih)` never upscales a smaller source. Video at 1.5 Mbps plus audio at 96 kbps averages about 1.6 Mbps, so a 45-minute lecture is roughly 540 MB. **(untested)** against a real recording; the first batch should be run and uploaded by Sam before professors are pointed at this.
+`-movflags +faststart` puts the index at the front; `min(720,ih)` never upscales a smaller source. Video at 1.5 Mbps plus audio at 96 kbps averages about 1.6 Mbps, so a 45-minute lecture is roughly 540 MB. **(untested)** against a real recording; the first batch should be run and uploaded by the deployment's owner before professors are pointed at this.
 
 ## HandBrake (no command line)
 
