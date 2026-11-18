@@ -10,7 +10,7 @@ import { ProgressBar } from "@/components/ui/progress-bar";
 import { CompletionBanner } from "./completion-banner";
 import { useLectureProgress } from "./use-lecture-progress";
 import { useRefreshOnComplete } from "./use-refresh-on-complete";
-import { useStreamUrl } from "./use-stream-url";
+import type { UploadStream } from "./use-stream-url";
 
 type Props = {
   lectureId: string;
@@ -22,6 +22,8 @@ type Props = {
   initialProgress: ProgressView;
   /** Shown in the completion banner. */
   next?: { href: string; title: string } | null;
+  /** The uploaded video's signed URL (fetched by LecturePlayer, which also handles YouTube lectures). */
+  stream: UploadStream;
 };
 
 const SKIP_SECONDS = 10;
@@ -37,7 +39,7 @@ const MAX_MEDIA_RETRIES = 2;
  *   - what counts as "watched", the percentage and completion are shown
  *     exactly as the server reports them
  */
-export function VideoPlayer({ lectureId, title, durationSeconds, tracksProgress, initialProgress, next }: Props) {
+export function VideoPlayer({ lectureId, title, durationSeconds, tracksProgress, initialProgress, next, stream }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -57,7 +59,6 @@ export function VideoPlayer({ lectureId, title, durationSeconds, tracksProgress,
   const [notice, setNotice] = useState<string | null>(null);
   const [mediaError, setMediaError] = useState<string | null>(null);
 
-  const stream = useStreamUrl(lectureId);
   const progress = useLectureProgress({ lectureId, tracksProgress, initial: initialProgress });
   const unlocked = !tracksProgress || progress.completed;
   useRefreshOnComplete(progress.completed, tracksProgress);

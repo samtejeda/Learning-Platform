@@ -67,6 +67,7 @@ export function LectureListManager({ courseId, lectures }: { courseId: string; l
                   <div className="truncate text-[15px] font-medium text-ink">{lecture.title}</div>
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
                     <Badge tone={status.tone}>{status.label}</Badge>
+                    <Badge tone="outline">{lecture.videoSource === "youtube" ? "YouTube" : "Uploaded"}</Badge>
                     {lecture.durationSeconds ? <span>{formatTime(lecture.durationSeconds)}</span> : null}
                     <Badge tone={lecture.comprehensionEnabled ? "success" : "outline"}>{lecture.comprehensionEnabled ? "Question on" : "Question off"}</Badge>
                   </div>
@@ -131,7 +132,11 @@ export function LectureListManager({ courseId, lectures }: { courseId: string; l
                   variant="ghost"
                   danger
                   action={deleteLecture.bind(null, lecture.id)}
-                  confirm={`Delete "${lecture.title}" and its video? Students' progress on it is removed too.`}
+                  confirm={
+                    lecture.videoSource === "youtube"
+                      ? `Delete "${lecture.title}"? The video stays on YouTube. Students' progress on this lecture is removed.`
+                      : `Delete "${lecture.title}" and its video? Students' progress on it is removed too.`
+                  }
                 />
               </div>
 

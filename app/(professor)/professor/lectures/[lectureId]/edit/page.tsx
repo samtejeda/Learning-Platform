@@ -12,7 +12,9 @@ import {
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { BackLink } from "@/components/ui/back-link";
+import { Badge } from "@/components/ui/badge";
 import { CourseForm } from "@/components/course-form";
+import { YoutubeLectureEditForm } from "@/components/lecture-youtube/youtube-lecture-edit-form";
 import { ComprehensionPanel } from "@/components/lecture-comprehension/comprehension-panel";
 
 const paramsSchema = z.object({ lectureId: z.uuid() });
@@ -34,6 +36,7 @@ export default async function EditLecturePage({
   // Owner DTO: the only read that carries the answer key (ownership joined in the query).
   const comprehension = await getOwnedComprehension(lecture.id, user);
   if (!comprehension) notFound();
+  const isYoutube = lecture.videoSource === "youtube";
 
   return (
     <div className="max-w-3xl space-y-6 sm:space-y-8">
@@ -46,16 +49,37 @@ export default async function EditLecturePage({
           { label: lecture.title },
         ]}
         title="Edit lecture"
-        lead="Edit the title and description, and the quick check question. To replace the video, delete the lecture and upload again."
+        lead={
+          isYoutube
+            ? "Edit the title, description, YouTube link and length, and the quick check question."
+            : "Edit the title and description, and the quick check question. To replace the video, delete the lecture and upload again."
+        }
       />
       <Card className="max-w-xl">
-        {/* Same field names as a course (title, description); the bound id is re-checked in the action. */}
-        <CourseForm
-          action={updateLecture.bind(null, lecture.id)}
-          initial={{ title: lecture.title, description: lecture.description }}
-          submitLabel="Save changes"
-          pendingLabel="Saving…"
-        />
+        <p className="mb-5 flex flex-wrap items-center gap-2 text-sm text-body">
+          <span>Video source:</span>
+          <Badge tone="outline">{isYoutube ? "YouTube" : "Uploaded"}</Badge>
+          <span className="text-muted">Fixed when the lecture is created.</span>
+        </p>
+        {isYoutube ? (
+          <YoutubeLectureEditForm
+            action={updateLecture.bind(null, lecture.id)}
+            initial={{
+              title: lecture.title,
+              description: lecture.description,
+              videoId: lecture.youtubeVideoId,
+              durationSeconds: lecture.durationSeconds,
+            }}
+          />
+        ) : (
+          /* Same field names as a course (title, description); the bound id is re-checked in the action. */
+          <CourseForm
+            action={updateLecture.bind(null, lecture.id)}
+            initial={{ title: lecture.title, description: lecture.description }}
+            submitLabel="Save changes"
+            pendingLabel="Saving…"
+          />
+        )}
       </Card>
       <ComprehensionPanel
         data={comprehension}

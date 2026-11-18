@@ -10,7 +10,7 @@ import { buttonClassName } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { ComprehensionSection } from "@/components/video-player/comprehension-section";
-import { VideoPlayer } from "@/components/video-player/video-player";
+import { LecturePlayer } from "@/components/video-player/lecture-player";
 
 const paramsSchema = z.object({ courseId: z.uuid(), lectureId: z.uuid() });
 
@@ -98,7 +98,7 @@ export default async function LecturePage({
         <Alert tone="info">Preview — progress isn&apos;t recorded for instructors.</Alert>
       )}
 
-      <VideoPlayer
+      <LecturePlayer
         // Remount per lecture so no playback state leaks between lectures.
         key={lecture.id}
         lectureId={lecture.id}

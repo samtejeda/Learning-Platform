@@ -124,6 +124,7 @@ await prof.waitForLoadState("networkidle");
 for (const name of ["Lecture A", "Lecture B"]) {
   await prof.goto(courseUrl, { waitUntil: "networkidle" });
   await prof.waitForTimeout(1000);
+  await prof.getByText("Upload a video", { exact: true }).click(); // the add-lecture choice comes first
   await prof.fill("#lectures input[name=title]", name);
   await prof.setInputFiles("#lectures input[type=file]", { name: "clip.mp4", mimeType: "video/mp4", buffer: MP4 });
   await prof.click("#lectures form:has(input[type=file]) button[type=submit]");

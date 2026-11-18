@@ -3,8 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 
 // Contract: GET /api/lectures/[id]/stream   (API.md)
-//   200 → { url, expiresAt (ISO) }   15-minute signed URL, Cache-Control: no-store
+//   200 → { source: "upload", url, expiresAt (ISO) }   15-minute signed URL, Cache-Control: no-store
+//       | { source: "youtube", videoId }               11-character id, nothing to refresh
 //   404 (not enrolled / unpublished / unknown), 429, 503 storage_unavailable
+//
+// The caller (LecturePlayer) picks the player from `source`. The refresh rules
+// below only matter for uploads.
 //
 // The URL is fetched once and re-fetched only on demand (`refresh()`): when
 // playback starts and the URL is about to expire, or when the <video> errors
@@ -12,10 +16,18 @@ import { useCallback, useEffect, useState } from "react";
 // swapped on a timer — changing <video src> mid-lecture would restart the
 // video at 0:00.
 
-type State =
+const YOUTUBE_ID = /^[A-Za-z0-9_-]{11}$/;
+
+type UploadState =
   | { status: "loading"; url: null }
-  | { status: "ready"; url: string; expiresAt: number }
+  | { status: "ready"; source: "upload"; url: string; expiresAt: number }
   | { status: "error"; url: null; message: string };
+
+type State = UploadState | { status: "ready"; source: "youtube"; videoId: string; url: null };
+
+/** What the uploaded-video player works with: never the YouTube variant. */
+export type UploadStream = UploadState & { refresh: () => void };
+export type LectureStream = State & { refresh: () => void };
 
 const MESSAGES: Record<number, string> = {
   401: "Your session has expired. Please sign in again to keep watching.",
@@ -24,7 +36,7 @@ const MESSAGES: Record<number, string> = {
   503: "Video is unavailable right now. Please try again.",
 };
 
-export function useStreamUrl(lectureId: string) {
+export function useStreamUrl(lectureId: string): LectureStream {
   const [state, setState] = useState<State>({ status: "loading", url: null });
   const [version, setVersion] = useState(0);
 
@@ -48,9 +60,21 @@ export function useStreamUrl(lectureId: string) {
           });
           return;
         }
-        const data = (await res.json()) as { url: string; expiresAt: string };
+        const data = (await res.json()) as { source?: string; url?: string; expiresAt?: string; videoId?: string };
         if (cancelled) return;
-        setState({ status: "ready", url: data.url, expiresAt: Date.parse(data.expiresAt) });
+        if (data.source === "youtube") {
+          if (typeof data.videoId !== "string" || !YOUTUBE_ID.test(data.videoId)) {
+            setState({ status: "error", url: null, message: "We couldn't load this video." });
+            return;
+          }
+          setState({ status: "ready", source: "youtube", videoId: data.videoId, url: null });
+          return;
+        }
+        if (typeof data.url !== "string" || typeof data.expiresAt !== "string") {
+          setState({ status: "error", url: null, message: "We couldn't load this video." });
+          return;
+        }
+        setState({ status: "ready", source: "upload", url: data.url, expiresAt: Date.parse(data.expiresAt) });
       })
       .catch(() => {
         if (cancelled) return;
