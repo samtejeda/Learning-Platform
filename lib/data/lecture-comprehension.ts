@@ -7,6 +7,7 @@ import {
   enrollments,
   lectureComprehensionAttempts,
   lectureComprehensionQuestions,
+  lectureComprehensionUnlocks,
   lectureProgress,
   lectures,
 } from "@/lib/db/schema";
@@ -243,6 +244,13 @@ export type StudentComprehension = {
   attemptsRemaining: number;
   /** The question can only be answered once the lecture is completed (server-validated). */
   lectureCompleted: boolean;
+  /**
+   * A professor has unlocked this student on this lecture. `status` still says
+   * what the attempts say (history is never rewritten), so "blocked" plus
+   * `unlocked` means "the teacher let you through": show that, not "contact
+   * your teacher".
+   */
+  unlocked: boolean;
   /** The question for the next attempt: null when passed/blocked or the lecture isn't completed yet. */
   question: StudentComprehensionQuestion | null;
 };
@@ -335,7 +343,17 @@ export async function getComprehensionForStudent(
 ): Promise<StudentComprehension | null> {
   const access = await getAccess(lectureId, studentId);
   if (!access) return null;
-  const state = deriveComprehensionState(await studentAttempts(lectureId, studentId));
+  const [attempts, [unlock]] = await Promise.all([
+    studentAttempts(lectureId, studentId),
+    db
+      .select({ id: lectureComprehensionUnlocks.id })
+      .from(lectureComprehensionUnlocks)
+      .where(
+        and(eq(lectureComprehensionUnlocks.lectureId, lectureId), eq(lectureComprehensionUnlocks.studentId, studentId)),
+      )
+      .limit(1),
+  ]);
+  const state = deriveComprehensionState(attempts);
   let question: StudentComprehensionQuestion | null = null;
   if (access.completed && state.nextAttempt) {
     const row = questionForNextAttempt(await studentQuestionRows(lectureId), state.nextAttempt);
@@ -346,6 +364,7 @@ export async function getComprehensionForStudent(
     attemptsUsed: state.attemptsUsed,
     attemptsRemaining: state.attemptsRemaining,
     lectureCompleted: access.completed,
+    unlocked: unlock !== undefined,
     question,
   };
 }

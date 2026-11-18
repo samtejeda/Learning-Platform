@@ -6,6 +6,8 @@ import { revalidatePath } from "next/cache";
 import { logger } from "@/lib/logger";
 import { assertRole } from "@/lib/auth/session";
 import { findOwnedCourse } from "@/lib/data/courses";
+import { unlockStudentForLecture } from "@/lib/data/lecture-unlocks";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import {
   comprehensionPublishProblems,
   saveOwnedComprehension,
@@ -364,4 +366,26 @@ export async function disableLectureComprehension(lectureId: string): Promise<Ac
   const id = uuidSchema.safeParse(lectureId);
   if (!id.success) return { error: NOT_FOUND };
   return editResultToState(await setOwnedComprehensionEnabled(id.data, user, false), "Comprehension question turned off.");
+}
+
+// ─── Unlock a student (professor) ─────────────────────────────────────────────
+// After a student used both attempts on a lecture's question, the next lecture
+// stays locked until the professor lets them through (the student contacts the
+// teacher outside the app). Counts as "cleared" for locking; attempts are never
+// altered. Ownership AND the student's enrollment are checked inside the query.
+
+/** Unlock one student on one lecture. Idempotent. */
+export async function unlockStudentOnLecture(lectureId: string, studentId: string): Promise<ActionState> {
+  const user = await assertRole("professor", "admin");
+  const lid = uuidSchema.safeParse(lectureId);
+  const sid = uuidSchema.safeParse(studentId);
+  if (!lid.success || !sid.success) return { error: "Lecture or student not found." };
+
+  const limited = await enforceRateLimit("lecture_unlock", user.id);
+  if (limited) return { error: limited };
+
+  const result = await unlockStudentForLecture(lid.data, sid.data, user);
+  if (!result.ok) return { error: "Lecture or student not found." };
+  revalidatePath(`/professor/courses/${result.courseId}`);
+  return { success: result.created ? "Unlocked." : "Already unlocked." };
 }

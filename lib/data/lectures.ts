@@ -5,6 +5,8 @@ import { db } from "@/lib/db";
 import { courses, lectureProgress, lectures } from "@/lib/db/schema";
 import type { Actor } from "./courses";
 import { comprehensionAllowsPublish } from "./lecture-comprehension";
+import { getStudentLectureLocks } from "./lecture-locks";
+import type { LectureLock } from "@/lib/lectures/lock-rules";
 
 // Lecture reads and writes. Student functions require enrollment AND
 // publication in the query; professor functions either run after
@@ -37,6 +39,12 @@ export type StudentLecture = {
   /** 0–100, from the server-validated watched coverage. */
   percentWatched: number;
   completed: boolean;
+  /**
+   * Null when open. Otherwise why it is locked (reason code + the lecture in
+   * the way); never the question or its key. Derived at read time by
+   * getStudentLectureLocks, the same answer the stream and progress routes use.
+   */
+  lock: LectureLock | null;
 };
 
 function statusOf(row: { videoUploadedAt: Date | null; publishedAt: Date | null }): LectureStatus {
@@ -95,9 +103,11 @@ export async function listPublishedLecturesForStudent(
     )
     .where(and(eq(lectures.courseId, courseId), isNotNull(lectures.publishedAt)))
     .orderBy(asc(lectures.order), asc(lectures.createdAt));
+  const locks = await getStudentLectureLocks(db, courseId, studentId);
   return rows.map(({ watchedSeconds, ...rest }) => ({
     ...rest,
     percentWatched: percent(watchedSeconds, rest.durationSeconds),
+    lock: locks.get(rest.id) ?? null,
   }));
 }
 

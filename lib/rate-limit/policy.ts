@@ -17,6 +17,7 @@ export type Scope =
   | "reset_request"
   | "resend_confirmation"
   | "invite"
+  | "lecture_unlock"
   | "lecture_progress"
   | "lecture_comprehension"
   | "course_file"
@@ -65,6 +66,13 @@ export const RATE_LIMITS: Record<Scope, Policy> = {
   invite: {
     perIp: { limit: 60, windowSeconds: HOUR },
     perIdentifier: { limit: 40, windowSeconds: HOUR },
+  },
+  // A professor unlocking a student past a lecture's comprehension question.
+  // Identifier is the acting professor's id; a human does this a handful of
+  // times, so this only stops a runaway client.
+  lecture_unlock: {
+    perIp: { limit: 120, windowSeconds: HOUR },
+    perIdentifier: { limit: 60, windowSeconds: HOUR },
   },
   // Video progress pings: the player sends one every ~10 s of playback plus
   // pause/ended. Identifier is the student's id.
