@@ -354,7 +354,7 @@ Anything that's decided and ready, but can't actually be done or tested until so
 - Worker-side logging/Sentry, and an `/api/health` probe for the Worker (flagged by its own audit self-check; the Worker currently fails silently to anything but a broken player or the Cloudflare dashboard).
 
 ### Productization (logged 2026-11-02; see "Logged scope: productization and lecture changes")
-- Choose a license and add the copyright notice and `LICENSE` file; until then the repo should say all rights reserved explicitly.
+- ~~Add an explicit all-rights-reserved notice and `LICENSE` file~~ — done 2026-11-14 in "Copyright (c) 2026 Sam Tejeda" form (README License section and `package.json` `license: UNLICENSED` updated). **Still open:** the real license decision (stay proprietary with per-organization contracts, AGPL-3.0 plus a commercial license, or MIT), to be made with a lawyer's input before any outside organization deploys it. The repo stays public meanwhile (Sam, 2026-11-06).
 - Curate what ships in the product repo (see item 5 of that scope entry); decide whether to publish a fresh curated repo.
 - Write the README / install guide listing every service account an organization needs, required vs optional.
 - Lawyer review of the terms, privacy policy, payment disclosure (if Stripe), and the organization contract.

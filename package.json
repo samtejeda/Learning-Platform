@@ -2,6 +2,7 @@
   "name": "learning-platform",
   "version": "0.1.0",
   "private": true,
+  "license": "UNLICENSED",
   "packageManager": "pnpm@11.0.8",
   "engines": {
     "node": "24.x"

@@ -6,7 +6,7 @@ It is built to be **deployed by each organization on its own accounts**: your ow
 
 **Stack:** Next.js 16 (App Router) + TypeScript, Supabase (Postgres, Auth, Storage), Drizzle ORM, Vercel, with optional Sentry, a Cloudflare Worker for video caching, and Twilio phone sign-in.
 
-> **Name and license are placeholders.** "Learning Platform" is a working title. See [License](#license).
+> **"Learning Platform" is a working title, and the code is all rights reserved for now.** See [License](#license).
 
 ---
 
@@ -396,6 +396,8 @@ Checked on 2026-11-09 from a fresh checkout, with no real accounts, secrets or n
 
 ## License
 
-**License: to be decided.**
+**Copyright (c) 2026 Sam Tejeda. All rights reserved.** See [LICENSE](LICENSE).
 
-This is a placeholder. No license has been chosen yet, and this repository does not include a `LICENSE` file. Until one is added, do not assume you have permission to copy, modify, deploy or redistribute this code; ask the maintainer.
+The source is public so it can be read, but it is **not** open source today: no permission is granted to use, copy, modify, deploy or redistribute it without the copyright holder's written permission. To ask for a license, see the contact line in [LICENSE](LICENSE).
+
+The maintainer intends to choose a license (open source or per-organization commercial) before any outside organization deploys it. Until that is announced here, assume the terms above.
